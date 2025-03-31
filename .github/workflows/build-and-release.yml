@@ -242,6 +242,10 @@ jobs:
           # Create a VERSION file to ensure we're not hitting bootstrapping issues
           echo "go1.24.1" > ../VERSION
           
+          # Prevent it from trying to download a newer version
+          echo "GOTOOLCHAIN=local" >> $GITHUB_ENV
+          export GOTOOLCHAIN=local
+          
           # Enable module support
           export GO111MODULE=on
           
@@ -250,8 +254,9 @@ jobs:
           echo "GO111MODULE: $GO111MODULE"
           echo "GOARCH: ${{ matrix.arch }}"
           echo "GOOS: ${{ matrix.platform }}"
+          echo "GOTOOLCHAIN: $GOTOOLCHAIN"
           
-          GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} ./make.bash
+          GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} GOTOOLCHAIN=local ./make.bash
       
       - name: Build Go for Windows
         if: matrix.platform == 'windows'
@@ -287,6 +292,9 @@ jobs:
           # Create a VERSION file to ensure we're not hitting bootstrapping issues
           Set-Content -Path "..\VERSION" -Value "go1.24.1"
           
+          # Prevent it from trying to download a newer version
+          $env:GOTOOLCHAIN = "local"
+          
           # Enable module support and specify bootstrap options
           $env:GO111MODULE = "on"
           
@@ -298,7 +306,9 @@ jobs:
           Write-Host "GO111MODULE: $env:GO111MODULE"
           Write-Host "GOARCH: $env:GOARCH"
           Write-Host "GOOS: $env:GOOS"
+          Write-Host "GOTOOLCHAIN: $env:GOTOOLCHAIN"
           
+          $env:GOTOOLCHAIN = "local"
           .\make.bat
       
       - name: Create package (Unix)
