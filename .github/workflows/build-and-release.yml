@@ -88,7 +88,7 @@ jobs:
       
       - name: Save commit tracking file
         if: steps.check_changes.outputs.has_changes == 'true'
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: commit-tracking
           path: last_processed_commit.txt
@@ -143,7 +143,7 @@ jobs:
           git clone --depth=1 https://github.com/golang/go golang-repo
       
       - name: Download commit tracking file
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: commit-tracking
       
@@ -200,7 +200,7 @@ jobs:
         shell: bash
       
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: go-${{ matrix.platform }}-${{ matrix.arch }}
           path: dist/
@@ -213,7 +213,7 @@ jobs:
     
     steps:
       - name: Download all build artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: ./artifacts
       
