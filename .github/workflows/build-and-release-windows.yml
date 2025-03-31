@@ -1,9 +1,13 @@
 name: Build and Release Go-Easy for Windows
 
 on:
-  schedule:
-    # Check for updates daily at midnight UTC
-    - cron: '0 0 * * *'
+  # Run when the auto-merge workflow completes successfully
+  workflow_run:
+    workflows: ["Auto-Merge Golang Updates"]
+    types:
+      - completed
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       force_build:
@@ -27,6 +31,19 @@ jobs:
       go_version: ${{ steps.extract_version.outputs.go_version }}
     
     steps:
+      - name: Check if triggering workflow succeeded
+        if: github.event_name == 'workflow_run'
+        id: workflow_check
+        run: |
+          if [[ "${{ github.event.workflow_run.conclusion }}" != "success" ]]; then
+            echo "The Auto-Merge workflow did not succeed. Skipping build."
+            echo "workflow_succeeded=false" >> $GITHUB_OUTPUT
+            exit 0
+          else
+            echo "The Auto-Merge workflow succeeded. Proceeding with build."
+            echo "workflow_succeeded=true" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -57,6 +74,7 @@ jobs:
       
       - name: Check if new changes exist in upstream
         id: check_changes
+        if: ${{ github.event_name != 'workflow_run' || steps.workflow_check.outputs.workflow_succeeded == 'true' }}
         run: |
           # If force_build is set to true, always build
           if [[ "${{ github.event.inputs.force_build }}" == "true" ]]; then
