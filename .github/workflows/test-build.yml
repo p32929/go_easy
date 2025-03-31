@@ -1,0 +1,150 @@
+name: Test Build Process
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+    # Allow manual triggering
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24.1'
+          check-latest: true
+      
+      - name: Verify Go Version
+        run: go version
+      
+      - name: Check repository structure
+        run: |
+          echo "Checking required files..."
+          ls -la src/cmd/compile/internal/base/ || echo "base directory not found"
+          ls -la src/cmd/compile/internal/types2/ || echo "types2 directory not found"
+          ls -la src/cmd/dist/ || echo "dist directory not found"
+      
+      - name: Clone Go repository
+        run: |
+          git clone --depth=1 https://github.com/golang/go golang-repo
+          cd golang-repo
+          echo "GO_REPO_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+      
+      - name: Ensure dependencies are available
+        run: |
+          # Create a temporary go.mod file if needed
+          if [ ! -f go.mod ]; then
+            go mod init go-easy
+          fi
+          # Ensure go.sum is present and dependencies are available
+          go mod tidy
+        working-directory: golang-repo
+      
+      - name: Apply Go-Easy changes
+        run: |
+          # Apply our changes to make unused variable warnings
+          echo "Copying modified files to Go repository..."
+          cp -v src/cmd/compile/internal/base/print.go golang-repo/src/cmd/compile/internal/base/print.go || echo "Failed to copy print.go"
+          cp -v src/cmd/compile/internal/types2/errors.go golang-repo/src/cmd/compile/internal/types2/errors.go || echo "Failed to copy errors.go"
+          cp -v src/cmd/compile/internal/types2/api.go golang-repo/src/cmd/compile/internal/types2/api.go || echo "Failed to copy api.go"
+          cp -v src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go || echo "Failed to copy build.go"
+      
+      - name: Create go/version directory for bootstrapping
+        run: |
+          # Create go/version directory structure if needed for bootstrapping
+          GOPATH=$(which go)
+          GOROOT=$(dirname $(dirname $GOPATH))
+          echo "Go executable path: $GOPATH"
+          echo "GOROOT: $GOROOT"
+          
+          VERSION_DIR="$GOROOT/src/go/version"
+          if [ ! -d "$VERSION_DIR" ]; then
+            echo "Creating go/version directory at $VERSION_DIR"
+            mkdir -p "$VERSION_DIR"
+            # Create a simple version.go file with minimal implementation
+            cat > "$VERSION_DIR/version.go" << EOF
+package version
+
+// Version returns the Go version string.
+func Version() string {
+    return "go1.24.1"
+}
+EOF
+          fi
+      
+      - name: Build Go (test build)
+        run: |
+          cd golang-repo/src
+          # Set bootstrap environment - explicitly using the detected Go installation
+          GOPATH=$(which go)
+          GOROOT=$(dirname $(dirname $GOPATH))
+          export GOROOT_BOOTSTRAP=$GOROOT
+          echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP"
+          
+          # Create a VERSION file to ensure we're not hitting bootstrapping issues
+          echo "go1.24.1" > ../VERSION
+          
+          # Enable module support
+          export GO111MODULE=on
+          
+          # Add additional debugging
+          echo "Environment variables:"
+          echo "GO111MODULE: $GO111MODULE"
+          echo "GOARCH: amd64"
+          echo "GOOS: linux"
+          
+          # Build Go for testing - use GOMAXPROCS=2 to speed up the build
+          GOMAXPROCS=2 ./make.bash
+      
+      - name: Test the Go-Easy compiler
+        run: |
+          cd golang-repo
+          
+          # Create a test file with unused variable
+          cat > test.go << EOF
+package main
+
+import "fmt"
+
+func main() {
+    var a = "hello"
+    fmt.Println(a)
+    
+    var unused = true
+    // This variable is unused but should compile with just a warning
+}
+EOF
+          
+          # Try to compile and run it
+          echo "Testing Go-Easy compiler..."
+          ./bin/go run test.go
+      
+      - name: Create package (for testing)
+        run: |
+          cd golang-repo
+          # Create archive
+          ARCHIVE_NAME="go1.24.1-easy-linux-amd64-test"
+          
+          # Create a tar.gz archive
+          tar -czf ${ARCHIVE_NAME}.tar.gz go
+          
+          echo "Created archive: ${ARCHIVE_NAME}.tar.gz"
+          
+          # Move archive to a location for uploading
+          mkdir -p ../dist
+          mv ${ARCHIVE_NAME}.tar.gz ../dist/
+      
+      - name: Upload test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-linux-amd64-test
+          path: dist/
+          retention-days: 1 

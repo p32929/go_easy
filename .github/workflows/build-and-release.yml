@@ -1,14 +1,23 @@
 name: Build and Release Go-Easy
 
 on:
-  push:
-    branches:
-      - master
   schedule:
     # Check for updates daily at midnight UTC
     - cron: '0 0 * * *'
   workflow_dispatch:
-    # Allow manual triggering
+    inputs:
+      force_build:
+        description: 'Force build even if no changes are detected'
+        type: boolean
+        default: false
+      version_suffix:
+        description: 'Custom version suffix (default is -easy)'
+        type: string
+        default: '-easy'
+      skip_release:
+        description: 'Skip creating GitHub release'
+        type: boolean
+        default: false
 
 jobs:
   check-for-changes:
@@ -59,6 +68,14 @@ jobs:
       - name: Check if new changes exist in upstream
         id: check_changes
         run: |
+          # If force_build is set to true, always build
+          if [[ "${{ github.event.inputs.force_build }}" == "true" ]]; then
+            echo "Force build requested, proceeding with build"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "$GO_REPO_COMMIT" > last_processed_commit.txt
+            exit 0
+          fi
+          
           # Check if we have a file that tracks the last processed commit
           if [ -f last_processed_commit.txt ]; then
             LAST_PROCESSED_COMMIT=$(cat last_processed_commit.txt)
@@ -314,7 +331,8 @@ func Version() string {
           cd golang-repo
           # Create archive based on platform
           GO_VERSION="${{ needs.check-for-changes.outputs.go_version }}"
-          ARCHIVE_NAME="go${GO_VERSION}-easy-${{ matrix.platform }}-${{ matrix.arch }}"
+          VERSION_SUFFIX="${{ github.event.inputs.version_suffix || '-easy' }}"
+          ARCHIVE_NAME="go${GO_VERSION}${VERSION_SUFFIX}-${{ matrix.platform }}-${{ matrix.arch }}"
           
           # For Linux and macOS, create a tar.gz archive
           tar -czf ${ARCHIVE_NAME}.tar.gz go
@@ -331,7 +349,8 @@ func Version() string {
         run: |
           cd golang-repo
           $GO_VERSION = "${{ needs.check-for-changes.outputs.go_version }}"
-          $ARCHIVE_NAME = "go${GO_VERSION}-easy-${{ matrix.platform }}-${{ matrix.arch }}"
+          $VERSION_SUFFIX = "${{ github.event.inputs.version_suffix || '-easy' }}"
+          $ARCHIVE_NAME = "go${GO_VERSION}${VERSION_SUFFIX}-${{ matrix.platform }}-${{ matrix.arch }}"
           
           # For Windows, create a zip archive
           7z a -tzip $ARCHIVE_NAME.zip go
@@ -352,7 +371,7 @@ func Version() string {
   release:
     needs: [check-for-changes, build]
     runs-on: ubuntu-latest
-    if: needs.check-for-changes.outputs.has_changes == 'true'
+    if: needs.check-for-changes.outputs.has_changes == 'true' && github.event.inputs.skip_release != 'true'
     
     steps:
       - name: Download all build artifacts
@@ -369,8 +388,8 @@ func Version() string {
       - name: Create or update release
         uses: softprops/action-gh-release@v1
         with:
-          name: "Go ${{ needs.check-for-changes.outputs.go_version }}-easy"
-          tag_name: "v${{ needs.check-for-changes.outputs.go_version }}-easy"
+          name: "Go ${{ needs.check-for-changes.outputs.go_version }}${{ github.event.inputs.version_suffix || '-easy' }}"
+          tag_name: "v${{ needs.check-for-changes.outputs.go_version }}${{ github.event.inputs.version_suffix || '-easy' }}"
           files: ./release-files/*
           draft: false
           prerelease: false
