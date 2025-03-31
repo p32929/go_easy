@@ -246,14 +246,12 @@ jobs:
             echo "Creating go/version directory at $VERSION_DIR"
             mkdir -p "$VERSION_DIR"
             # Create a simple version.go file with minimal implementation
-            cat > "$VERSION_DIR/version.go" << EOF
-package version
-
-// Version returns the Go version string.
-func Version() string {
-    return "go1.24.1"
-}
-EOF
+            echo "package version" > "$VERSION_DIR/version.go"
+            echo "" >> "$VERSION_DIR/version.go"
+            echo "// Version returns the Go version string." >> "$VERSION_DIR/version.go"
+            echo "func Version() string {" >> "$VERSION_DIR/version.go"
+            echo "    return \"go1.24.1\"" >> "$VERSION_DIR/version.go"
+            echo "}" >> "$VERSION_DIR/version.go"
           fi
           
           cd golang-repo/src
@@ -292,15 +290,13 @@ EOF
               Write-Host "Creating go/version directory at $versionDir"
               New-Item -ItemType Directory -Force -Path $versionDir
               # Create a simple version.go file with minimal implementation
-              $versionContent = @"
-package version
-
-// Version returns the Go version string.
-func Version() string {
-    return "go1.24.1"
-}
-"@
-              Set-Content -Path (Join-Path $versionDir "version.go") -Value $versionContent
+              $versionFile = Join-Path $versionDir "version.go"
+              "package version" | Out-File -FilePath $versionFile
+              "" | Out-File -FilePath $versionFile -Append
+              "// Version returns the Go version string." | Out-File -FilePath $versionFile -Append
+              "func Version() string {" | Out-File -FilePath $versionFile -Append
+              '    return "go1.24.1"' | Out-File -FilePath $versionFile -Append
+              "}" | Out-File -FilePath $versionFile -Append
           }
           
           cd golang-repo\src

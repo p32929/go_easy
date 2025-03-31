@@ -70,14 +70,12 @@ jobs:
             echo "Creating go/version directory at $VERSION_DIR"
             mkdir -p "$VERSION_DIR"
             # Create a simple version.go file with minimal implementation
-            cat > "$VERSION_DIR/version.go" << EOF
-package version
-
-// Version returns the Go version string.
-func Version() string {
-    return "go1.24.1"
-}
-EOF
+            echo "package version" > "$VERSION_DIR/version.go"
+            echo "" >> "$VERSION_DIR/version.go"
+            echo "// Version returns the Go version string." >> "$VERSION_DIR/version.go"
+            echo "func Version() string {" >> "$VERSION_DIR/version.go"
+            echo "    return \"go1.24.1\"" >> "$VERSION_DIR/version.go"
+            echo "}" >> "$VERSION_DIR/version.go"
           fi
       
       - name: Build Go (test build)
@@ -109,19 +107,17 @@ EOF
           cd golang-repo
           
           # Create a test file with unused variable
-          cat > test.go << EOF
-package main
-
-import "fmt"
-
-func main() {
-    var a = "hello"
-    fmt.Println(a)
-    
-    var unused = true
-    // This variable is unused but should compile with just a warning
-}
-EOF
+          echo "package main" > test.go
+          echo "" >> test.go
+          echo "import \"fmt\"" >> test.go
+          echo "" >> test.go
+          echo "func main() {" >> test.go
+          echo "    var a = \"hello\"" >> test.go
+          echo "    fmt.Println(a)" >> test.go
+          echo "    " >> test.go
+          echo "    var unused = true" >> test.go
+          echo "    // This variable is unused but should compile with just a warning" >> test.go
+          echo "}" >> test.go
           
           # Try to compile and run it
           echo "Testing Go-Easy compiler..."
