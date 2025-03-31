@@ -192,8 +192,12 @@ jobs:
           cp -f src/cmd/compile/internal/types2/api.go golang-repo/src/cmd/compile/internal/types2/api.go
           cp -f src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go
           
-          # More aggressive approach: Find and remove all module files
-          find golang-repo -name "go.mod" -o -name "go.sum" -o -name "go.work" | xargs rm -f
+          # Create VERSION file for Go bootstrap
+          echo "go1.20.12" > golang-repo/VERSION
+          echo "Created VERSION file with bootstrap version go1.20.12"
+          
+          # Remove module files to prevent version conflicts
+          find golang-repo -name "go.mod" -o -name "go.sum" -o -name "go.work" | xargs rm -f 2>/dev/null || true
           echo "Removed all go.mod, go.sum, and go.work files from the repo"
           
           # Set environment variables for cross-compilation
@@ -210,10 +214,12 @@ jobs:
           Copy-Item -Force src\cmd\compile\internal\types2\api.go golang-repo\src\cmd\compile\internal\types2\api.go
           Copy-Item -Force src\cmd\dist\build.go golang-repo\src\cmd\dist\build.go
           
-          # More aggressive approach: Find and remove all module files
-          Get-ChildItem -Path golang-repo -Recurse -Filter "go.mod" | Remove-Item -Force
-          Get-ChildItem -Path golang-repo -Recurse -Filter "go.sum" | Remove-Item -Force
-          Get-ChildItem -Path golang-repo -Recurse -Filter "go.work" | Remove-Item -Force
+          # Create VERSION file for Go bootstrap
+          Set-Content -Path "golang-repo\VERSION" -Value "go1.20.12"
+          Write-Host "Created VERSION file with bootstrap version go1.20.12"
+          
+          # Remove module files to prevent version conflicts
+          Get-ChildItem -Path golang-repo -Recurse -Include "go.mod","go.sum","go.work" | Remove-Item -Force -ErrorAction SilentlyContinue
           Write-Host "Removed all go.mod, go.sum, and go.work files from the repo"
           
           # Set environment variables for cross-compilation
@@ -230,49 +236,40 @@ jobs:
           echo "Go executable path: $GOPATH"
           echo "GOROOT: $GOROOT"
           
-          # Create go/version directory structure if needed for bootstrapping
-          VERSION_DIR="$GOROOT/src/go/version"
-          if [ ! -d "$VERSION_DIR" ]; then
-            echo "Creating go/version directory at $VERSION_DIR"
-            mkdir -p "$VERSION_DIR"
-            # Create a simple version.go file with minimal implementation
-            echo "package version" > "$VERSION_DIR/version.go"
-            echo "" >> "$VERSION_DIR/version.go"
-            echo "// Version returns the Go version string." >> "$VERSION_DIR/version.go"
-            echo "func Version() string {" >> "$VERSION_DIR/version.go"
-            echo "    return \"go1.20.12\"" >> "$VERSION_DIR/version.go"
-            echo "}" >> "$VERSION_DIR/version.go"
-          fi
-          
-          cd golang-repo
-          
-          # More aggressive approach: completely bypass go.mod
-          find . -name "go.mod" -o -name "go.sum" -o -name "go.work" | xargs rm -f
-          echo "Removed all go.mod, go.sum, and go.work files"
-          
-          # The problem might be modules - let's disable them completely
-          cd src
-          # Set bootstrap environment - explicitly using the detected Go installation
+          # Set the bootstrap Go root - this is the key setting according to Go docs
           export GOROOT_BOOTSTRAP=$GOROOT
           echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP"
           
-          # Create a VERSION file to ensure we're not hitting bootstrapping issues
-          echo "go1.20.12" > ../VERSION
+          cd golang-repo
           
-          # Disable module support completely
+          # Create a VERSION file with our bootstrap version
+          echo "go1.20.12" > VERSION
+          
+          # Remove module files to prevent version conflicts
+          find . -name "go.mod" -o -name "go.sum" -o -name "go.work" | xargs rm -f 2>/dev/null || true
+          echo "Removed all go.mod, go.sum, and go.work files"
+          
+          # Build Go according to the official documentation
+          cd src
+          
+          # Set the cross-compilation environment variables
+          export CGO_ENABLED=0
           export GO111MODULE=off
-          
-          # Force using local toolchain
           export GOTOOLCHAIN=local
+          export GOOS=${{ matrix.platform }}
+          export GOARCH=${{ matrix.arch }}
           
           # Add additional debugging
           echo "Environment variables:"
+          echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP" 
+          echo "CGO_ENABLED: $CGO_ENABLED"
           echo "GO111MODULE: $GO111MODULE"
-          echo "GOARCH: ${{ matrix.arch }}"
-          echo "GOOS: ${{ matrix.platform }}"
           echo "GOTOOLCHAIN: $GOTOOLCHAIN"
+          echo "GOOS: $GOOS"
+          echo "GOARCH: $GOARCH"
           
-          GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} GO111MODULE=off GOTOOLCHAIN=local ./make.bash
+          # Run the build
+          ./make.bash
       
       - name: Build Go for Windows
         if: matrix.platform == 'windows'
@@ -285,55 +282,39 @@ jobs:
           Write-Host "Go executable path: $goPath"
           Write-Host "GOROOT: $goRoot"
           
-          # Create go/version directory structure if needed for bootstrapping
-          $versionDir = Join-Path $goRoot "src\go\version"
-          if (-not (Test-Path $versionDir)) {
-              Write-Host "Creating go/version directory at $versionDir"
-              New-Item -ItemType Directory -Force -Path $versionDir
-              # Create a simple version.go file with minimal implementation
-              $versionFile = Join-Path $versionDir "version.go"
-              "package version" | Out-File -FilePath $versionFile
-              "" | Out-File -FilePath $versionFile -Append
-              "// Version returns the Go version string." | Out-File -FilePath $versionFile -Append
-              "func Version() string {" | Out-File -FilePath $versionFile -Append
-              '    return "go1.20.12"' | Out-File -FilePath $versionFile -Append
-              "}" | Out-File -FilePath $versionFile -Append
-          }
-          
-          cd golang-repo
-          
-          # More aggressive approach: Find and remove all module files
-          Get-ChildItem -Path . -Recurse -Filter "go.mod" | Remove-Item -Force
-          Get-ChildItem -Path . -Recurse -Filter "go.sum" | Remove-Item -Force
-          Get-ChildItem -Path . -Recurse -Filter "go.work" | Remove-Item -Force
-          Write-Host "Removed all go.mod, go.sum, and go.work files"
-          
-          cd src
-          # Set bootstrap environment - explicitly using the detected Go installation
+          # Set the bootstrap Go root - this is the key setting according to Go docs
           $env:GOROOT_BOOTSTRAP = $goRoot
           Write-Host "GOROOT_BOOTSTRAP: $env:GOROOT_BOOTSTRAP"
           
-          # Create a VERSION file to ensure we're not hitting bootstrapping issues
-          Set-Content -Path "..\VERSION" -Value "go1.20.12"
+          cd golang-repo
           
-          # Disable module support completely
+          # Create a VERSION file with our bootstrap version
+          Set-Content -Path "VERSION" -Value "go1.20.12"
+          
+          # Remove module files to prevent version conflicts
+          Get-ChildItem -Path . -Recurse -Include "go.mod","go.sum","go.work" | Remove-Item -Force -ErrorAction SilentlyContinue
+          Write-Host "Removed all go.mod, go.sum, and go.work files"
+          
+          # Build Go according to the official documentation
+          cd src
+          
+          # Set the cross-compilation environment variables
+          $env:CGO_ENABLED = "0"
           $env:GO111MODULE = "off"
-          
-          # Force using local toolchain
           $env:GOTOOLCHAIN = "local"
-          
-          $env:GOARCH = "${{ matrix.arch }}"
           $env:GOOS = "${{ matrix.platform }}"
+          $env:GOARCH = "${{ matrix.arch }}"
           
           # Add additional debugging
           Write-Host "Environment variables:"
+          Write-Host "GOROOT_BOOTSTRAP: $env:GOROOT_BOOTSTRAP"
+          Write-Host "CGO_ENABLED: $env:CGO_ENABLED"
           Write-Host "GO111MODULE: $env:GO111MODULE"
-          Write-Host "GOARCH: $env:GOARCH"
-          Write-Host "GOOS: $env:GOOS"
           Write-Host "GOTOOLCHAIN: $env:GOTOOLCHAIN"
+          Write-Host "GOOS: $env:GOOS"
+          Write-Host "GOARCH: $env:GOARCH"
           
-          $env:GO111MODULE = "off"
-          $env:GOTOOLCHAIN = "local"
+          # Run the build
           .\make.bat
       
       - name: Create package (Unix)
