@@ -1,10 +1,6 @@
 name: Build and Release Go-Easy
 
 on:
-  push:
-    branches:
-      - master
-      - main
   schedule:
     # Check for updates daily at midnight UTC
     - cron: '0 0 * * *'
