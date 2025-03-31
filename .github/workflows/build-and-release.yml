@@ -43,7 +43,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20.12'  # Using older Go version for bootstrapping
+          go-version: '1.22.6'  # Updated bootstrap version per Go build requirements
           check-latest: true
       
       - name: Verify Go Version
@@ -168,7 +168,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20.12'  # Using older Go version for bootstrapping
+          go-version: '1.22.6'  # Updated bootstrap version per requirements
           check-latest: true
       
       - name: Verify Go Version
@@ -193,8 +193,8 @@ jobs:
           cp -f src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go
           
           # Create VERSION file for Go bootstrap
-          echo "go1.20.12" > golang-repo/VERSION
-          echo "Created VERSION file with bootstrap version go1.20.12"
+          echo "go1.22.6" > golang-repo/VERSION
+          echo "Created VERSION file with bootstrap version go1.22.6"
           
           # Remove module files to prevent version conflicts
           find golang-repo -name "go.mod" -o -name "go.sum" -o -name "go.work" | xargs rm -f 2>/dev/null || true
@@ -215,8 +215,8 @@ jobs:
           Copy-Item -Force src\cmd\dist\build.go golang-repo\src\cmd\dist\build.go
           
           # Create VERSION file for Go bootstrap
-          Set-Content -Path "golang-repo\VERSION" -Value "go1.20.12"
-          Write-Host "Created VERSION file with bootstrap version go1.20.12"
+          Set-Content -Path "golang-repo\VERSION" -Value "go1.22.6"
+          Write-Host "Created VERSION file with bootstrap version go1.22.6"
           
           # Remove module files to prevent version conflicts
           Get-ChildItem -Path golang-repo -Recurse -Include "go.mod","go.sum","go.work" | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -243,7 +243,7 @@ jobs:
           cd golang-repo
           
           # Create a VERSION file with our bootstrap version
-          echo "go1.20.12" > VERSION
+          echo "go1.22.6" > VERSION
           
           # Remove module files to prevent version conflicts
           find . -name "go.mod" -o -name "go.sum" -o -name "go.work" | xargs rm -f 2>/dev/null || true
@@ -289,7 +289,7 @@ jobs:
           cd golang-repo
           
           # Create a VERSION file with our bootstrap version
-          Set-Content -Path "VERSION" -Value "go1.20.12"
+          Set-Content -Path "VERSION" -Value "go1.22.6"
           
           # Remove module files to prevent version conflicts
           Get-ChildItem -Path . -Recurse -Include "go.mod","go.sum","go.work" | Remove-Item -Force -ErrorAction SilentlyContinue
@@ -387,4 +387,4 @@ jobs:
           prerelease: false
           fail_on_unmatched_files: false
           token: ${{ secrets.GITHUB_TOKEN }}
-          generate_release_notes: true 
+          generate_release_notes: true
