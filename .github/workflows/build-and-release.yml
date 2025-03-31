@@ -43,7 +43,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20.15'  # The latest in 1.20.x series required for building Go 1.22+
+          go-version: '1.23.7'  # Using a more recent version as bootstrap compiler
           check-latest: true
       
       - name: Verify Go Version
@@ -167,7 +167,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.20.15'  # The latest in 1.20.x series required for building Go 1.22+
+          go-version: '1.23.7'  # Using a more recent version as bootstrap compiler
           check-latest: true
       
       - name: Verify Go Version
@@ -191,11 +191,6 @@ jobs:
           cp -f src/cmd/compile/internal/types2/api.go golang-repo/src/cmd/compile/internal/types2/api.go
           cp -f src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go
           
-          # Create VERSION file with bootstrap version
-          echo "go1.20.15" > golang-repo/VERSION
-          echo "Created VERSION file with bootstrap version go1.20.15"
-          
-          # NOTE: Do not remove go.mod, go.sum, or go.work files – they are required for the build
           cd golang-repo
           echo "Set GOOS=${{ matrix.platform }} and GOARCH=${{ matrix.arch }}"
       
@@ -209,11 +204,6 @@ jobs:
           Copy-Item -Force src\cmd\compile\internal\types2\api.go golang-repo\src\cmd\compile\internal\types2\api.go
           Copy-Item -Force src\cmd\dist\build.go golang-repo\src\cmd\dist\build.go
           
-          # Create VERSION file with bootstrap version
-          Set-Content -Path "golang-repo\VERSION" -Value "go1.20.15"
-          Write-Host "Created VERSION file with bootstrap version go1.20.15"
-          
-          # NOTE: Do not remove go.mod, go.sum, or go.work files
           cd golang-repo
           echo "Set GOOS=${{ matrix.platform }} and GOARCH=${{ matrix.arch }}"
       
@@ -232,14 +222,6 @@ jobs:
           echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP"
           
           cd golang-repo
-          
-          # Ensure the VERSION file is set
-          echo "go1.20.15" > VERSION
-          
-          # Fix go.mod files to work with our bootstrap version if needed
-          find . -name "go.mod" -exec sed -i.bak 's/go 1\.[2-9][0-9]/go 1.20/' {} \;
-          find . -name "go.mod" -exec grep -l "go 1." {} \; | xargs -r cat
-          echo "Modified go.mod files to ensure compatibility with Go 1.20 bootstrap"
           
           # Build Go using the official procedure
           cd src
@@ -277,17 +259,6 @@ jobs:
           Write-Host "GOROOT_BOOTSTRAP: $env:GOROOT_BOOTSTRAP"
           
           cd golang-repo
-          
-          # Ensure the VERSION file is set
-          Set-Content -Path "VERSION" -Value "go1.20.15"
-          
-          # Fix go.mod files to work with our bootstrap version if needed
-          Get-ChildItem -Path . -Recurse -Filter "go.mod" | ForEach-Object {
-            (Get-Content $_.FullName) -replace 'go 1\.[2-9][0-9]', 'go 1.20' | Set-Content $_.FullName
-            Write-Host "Checking file: $($_.FullName)"
-            Get-Content $_.FullName | Select-String "go 1."
-          }
-          Write-Host "Modified go.mod files to ensure compatibility with Go 1.20 bootstrap"
           
           # Build Go using the official documentation
           cd src
