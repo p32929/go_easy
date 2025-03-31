@@ -195,10 +195,18 @@ jobs:
         run: |
           # Verify Go version first
           go version
+          GOPATH=$(which go)
+          GOROOT=$(dirname $(dirname $GOPATH))
+          echo "Go executable path: $GOPATH"
+          echo "GOROOT: $GOROOT"
           
           cd golang-repo/src
-          # Set bootstrap environment - ensure we're using our installed Go version for bootstrap
+          # Set bootstrap environment - explicitly using the detected Go installation
           export GOROOT_BOOTSTRAP=$GOROOT
+          echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP"
+          
+          # Create a VERSION file to ensure we're not hitting bootstrapping issues
+          echo "go1.24.1" > ../VERSION
           
           GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} ./make.bash
       
@@ -208,10 +216,18 @@ jobs:
         run: |
           # Verify Go version first
           go version
+          $goPath = (Get-Command go).Path
+          $goRoot = (Split-Path -Parent (Split-Path -Parent $goPath))
+          Write-Host "Go executable path: $goPath"
+          Write-Host "GOROOT: $goRoot"
           
           cd golang-repo\src
-          # Set bootstrap environment - ensure we're using our installed Go version for bootstrap
-          $env:GOROOT_BOOTSTRAP = $env:GOROOT
+          # Set bootstrap environment - explicitly using the detected Go installation
+          $env:GOROOT_BOOTSTRAP = $goRoot
+          Write-Host "GOROOT_BOOTSTRAP: $env:GOROOT_BOOTSTRAP"
+          
+          # Create a VERSION file to ensure we're not hitting bootstrapping issues
+          Set-Content -Path "..\VERSION" -Value "go1.24.1"
           
           $env:GOARCH = "${{ matrix.arch }}"
           $env:GOOS = "${{ matrix.platform }}"
