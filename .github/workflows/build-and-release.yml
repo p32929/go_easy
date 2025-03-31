@@ -195,7 +195,7 @@ jobs:
           # Check and modify go.mod to ensure compatibility with 1.24.1
           if [ -f golang-repo/go.mod ]; then
             echo "Modifying go.mod to work with Go 1.24.1"
-            sed -i.bak 's/go 1\.25/go 1.24/' golang-repo/go.mod
+            sed -i.bak 's/go 1\.[2-9][0-9]/go 1.24/' golang-repo/go.mod
             cat golang-repo/go.mod
           fi
           
@@ -216,7 +216,7 @@ jobs:
           # Check and modify go.mod to ensure compatibility with 1.24.1
           if (Test-Path golang-repo\go.mod) {
             Write-Host "Modifying go.mod to work with Go 1.24.1"
-            (Get-Content golang-repo\go.mod) -replace 'go 1\.25', 'go 1.24' | Set-Content golang-repo\go.mod
+            (Get-Content golang-repo\go.mod) -replace 'go 1\.[2-9][0-9]', 'go 1.24' | Set-Content golang-repo\go.mod
             Get-Content golang-repo\go.mod
           }
           
@@ -253,8 +253,18 @@ jobs:
           # Check again and modify go.mod to ensure compatibility with 1.24.1
           if [ -f go.mod ]; then
             echo "Double-checking go.mod to work with Go 1.24.1"
-            sed -i.bak 's/go 1\.25/go 1.24/' go.mod
+            sed -i.bak 's/go 1\.[2-9][0-9]/go 1.24/' go.mod
+            # Also look for 'toolchain go1.25' and replace it
+            sed -i.bak 's/toolchain go1\.[2-9][0-9]/toolchain go1.24/' go.mod
             cat go.mod
+            
+            # If we still see go 1.25 mentioned anywhere, print a warning
+            if grep -q "1\.25" go.mod; then
+              echo "WARNING: go.mod still contains references to Go 1.25! Additional fix needed."
+              # Try a more aggressive replacement
+              sed -i.bak 's/1\.25/1.24/g' go.mod
+              cat go.mod
+            fi
           fi
           
           cd src
@@ -312,8 +322,18 @@ jobs:
           # Check again and modify go.mod to ensure compatibility with 1.24.1
           if (Test-Path go.mod) {
             Write-Host "Double-checking go.mod to work with Go 1.24.1"
-            (Get-Content go.mod) -replace 'go 1\.25', 'go 1.24' | Set-Content go.mod
+            (Get-Content go.mod) -replace 'go 1\.[2-9][0-9]', 'go 1.24' | Set-Content go.mod
+            # Also look for 'toolchain go1.25' and replace it
+            (Get-Content go.mod) -replace 'toolchain go1\.[2-9][0-9]', 'toolchain go1.24' | Set-Content go.mod
             Get-Content go.mod
+            
+            # If we still see go 1.25 mentioned anywhere, print a warning
+            if (Select-String -Path go.mod -Pattern "1\.25") {
+              Write-Host "WARNING: go.mod still contains references to Go 1.25! Additional fix needed."
+              # Try a more aggressive replacement
+              (Get-Content go.mod) -replace '1\.25', '1.24' | Set-Content go.mod
+              Get-Content go.mod
+            }
           }
           
           cd src
