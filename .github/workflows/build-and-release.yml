@@ -20,6 +20,14 @@ jobs:
         with:
           fetch-depth: 1
       
+      - name: Check repository structure
+        run: |
+          echo "Checking required files..."
+          ls -R src/cmd/compile/internal/base/
+          ls -R src/cmd/compile/internal/types2/
+          ls -R src/cmd/dist/
+        shell: bash
+      
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
@@ -147,13 +155,28 @@ jobs:
         with:
           name: commit-tracking
       
-      - name: Apply Go-Easy changes
+      - name: Apply Go-Easy changes (Unix)
+        if: matrix.platform != 'windows'
         run: |
           # Apply our changes to make unused variable warnings
           cp -f src/cmd/compile/internal/base/print.go golang-repo/src/cmd/compile/internal/base/print.go
           cp -f src/cmd/compile/internal/types2/errors.go golang-repo/src/cmd/compile/internal/types2/errors.go
           cp -f src/cmd/compile/internal/types2/api.go golang-repo/src/cmd/compile/internal/types2/api.go
           cp -f src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go
+          
+          # Set environment variables for cross-compilation
+          cd golang-repo
+          echo "Set GOOS=${{ matrix.platform }} and GOARCH=${{ matrix.arch }}"
+      
+      - name: Apply Go-Easy changes (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          # Apply our changes to make unused variable warnings
+          Copy-Item -Force src\cmd\compile\internal\base\print.go golang-repo\src\cmd\compile\internal\base\print.go
+          Copy-Item -Force src\cmd\compile\internal\types2\errors.go golang-repo\src\cmd\compile\internal\types2\errors.go
+          Copy-Item -Force src\cmd\compile\internal\types2\api.go golang-repo\src\cmd\compile\internal\types2\api.go
+          Copy-Item -Force src\cmd\dist\build.go golang-repo\src\cmd\dist\build.go
           
           # Set environment variables for cross-compilation
           cd golang-repo
@@ -167,37 +190,46 @@ jobs:
       
       - name: Build Go for Windows
         if: matrix.platform == 'windows'
+        shell: pwsh
         run: |
-          cd golang-repo/src
-          $env:GOARCH="${{ matrix.arch }}"
-          $env:GOOS="${{ matrix.platform }}"
+          cd golang-repo\src
+          $env:GOARCH = "${{ matrix.arch }}"
+          $env:GOOS = "${{ matrix.platform }}"
           .\make.bat
       
-      - name: Create package
+      - name: Create package (Unix)
+        if: matrix.platform != 'windows'
         run: |
           cd golang-repo
           # Create archive based on platform
           GO_VERSION="${{ needs.check-for-changes.outputs.go_version }}"
           ARCHIVE_NAME="go${GO_VERSION}-easy-${{ matrix.platform }}-${{ matrix.arch }}"
           
-          if [ "${{ matrix.platform }}" == "windows" ]; then
-            # For Windows, create a zip archive
-            7z a -tzip ${ARCHIVE_NAME}.zip go
-          else
-            # For Linux and macOS, create a tar.gz archive
-            tar -czf ${ARCHIVE_NAME}.tar.gz go
-          fi
+          # For Linux and macOS, create a tar.gz archive
+          tar -czf ${ARCHIVE_NAME}.tar.gz go
           
-          echo "Created archive: ${ARCHIVE_NAME}"
+          echo "Created archive: ${ARCHIVE_NAME}.tar.gz"
           
           # Move archive to a location for uploading
           mkdir -p ../dist
-          if [ "${{ matrix.platform }}" == "windows" ]; then
-            mv ${ARCHIVE_NAME}.zip ../dist/
-          else
-            mv ${ARCHIVE_NAME}.tar.gz ../dist/
-          fi
-        shell: bash
+          mv ${ARCHIVE_NAME}.tar.gz ../dist/
+      
+      - name: Create package (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          cd golang-repo
+          $GO_VERSION = "${{ needs.check-for-changes.outputs.go_version }}"
+          $ARCHIVE_NAME = "go${GO_VERSION}-easy-${{ matrix.platform }}-${{ matrix.arch }}"
+          
+          # For Windows, create a zip archive
+          7z a -tzip $ARCHIVE_NAME.zip go
+          
+          Write-Host "Created archive: $ARCHIVE_NAME.zip"
+          
+          # Move archive to a location for uploading
+          New-Item -ItemType Directory -Force -Path ..\dist
+          Move-Item $ARCHIVE_NAME.zip ..\dist\
       
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

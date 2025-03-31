@@ -1,42 +1,88 @@
-# The Go Programming Language
+# Go-Easy - The Go Compiler with Unused Variable Warnings
 
-Go is an open source programming language that makes it easy to build simple,
-reliable, and efficient software.
+This is a modified version of the Go compiler that treats unused variables as warnings instead of errors. It allows code with unused variables to compile and run successfully.
 
-![Gopher image](https://golang.org/doc/gopher/fiveyears.jpg)
-*Gopher image by [Renee French][rf], licensed under [Creative Commons 4.0 Attribution license][cc4-by].*
+## Features
 
-Our canonical Git repository is located at https://go.googlesource.com/go.
-There is a mirror of the repository at https://github.com/golang/go.
+- Unused variables are reported as warnings instead of errors
+- Code with unused variables still compiles and runs successfully
+- The compiler version has "-easy" suffix to clearly identify it as a custom build
 
-Unless otherwise noted, the Go source files are distributed under the
-BSD-style license found in the LICENSE file.
+## Automatic Builds
 
-### Download and Install
+This repository includes a GitHub Actions workflow that automatically:
 
-#### Binary Distributions
+1. Monitors the official Go repository for changes
+2. Builds Go for multiple platforms when changes are detected
+3. Creates GitHub releases with the binary packages
 
-Official binary distributions are available at https://go.dev/dl/.
+## Repository Structure
 
-After downloading a binary release, visit https://go.dev/doc/install
-for installation instructions.
+For the GitHub Actions workflow to work correctly, you need to have the modified Go source files in the correct structure. The repository should contain:
 
-#### Install From Source
+```
+├── .github
+│   └── workflows
+│       └── build-and-release.yml
+├── README.md
+└── src
+    └── cmd
+        ├── compile
+        │   └── internal
+        │       ├── base
+        │       │   └── print.go
+        │       └── types2
+        │           ├── api.go
+        │           └── errors.go
+        └── dist
+            └── build.go
+```
 
-If a binary distribution is not available for your combination of
-operating system and architecture, visit
-https://go.dev/doc/install/source
-for source installation instructions.
+### Required Modified Files
 
-### Contributing
+1. `src/cmd/compile/internal/base/print.go` - Modified to not count unused variable errors
+2. `src/cmd/compile/internal/types2/errors.go` - Modified to show "warning:" prefix for unused variable errors
+3. `src/cmd/compile/internal/types2/api.go` - Modified to only return errors for non-unused-variable issues
+4. `src/cmd/dist/build.go` - Modified to append "-easy" to version string
 
-Go is the work of thousands of contributors. We appreciate your help!
+## Installation
 
-To contribute, please read the contribution guidelines at https://go.dev/doc/contribute.
+You can either:
 
-Note that the Go project uses the issue tracker for bug reports and
-proposals only. See https://go.dev/wiki/Questions for a list of
-places to ask questions about the Go language.
+1. Download pre-built binaries from the [Releases](../../releases) page
+2. Clone this repository and build it yourself
 
-[rf]: https://reneefrench.blogspot.com/
-[cc4-by]: https://creativecommons.org/licenses/by/4.0/
+## Building Manually
+
+If you want to build Go-Easy manually:
+
+1. Clone the official Go repository
+2. Copy the modified files from this repository to the Go repository
+3. Run `./src/make.bash` (or `.\src\make.bat` on Windows)
+
+## Testing
+
+```go
+package main
+
+import "fmt"
+
+func main() {
+    var a = "hello"
+    fmt.Println(a)
+    
+    var unused = true
+    // This variable is unused but will compile with just a warning
+}
+```
+
+With Go-Easy, this will compile and run with a warning:
+
+```
+test.go:9:5: warning: declared and not used: unused
+hello
+```
+
+## License
+
+Go-Easy is based on Go and is subject to the same [license](https://golang.org/LICENSE) as the original Go source code.
