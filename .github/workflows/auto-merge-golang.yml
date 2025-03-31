@@ -1,0 +1,156 @@
+name: Auto-Merge Golang Updates
+
+on:
+  schedule:
+    # Check for updates daily at 2 AM UTC (offset from other workflows)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Force update even if no changes are detected'
+        type: boolean
+        default: false
+
+jobs:
+  check-and-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Git User
+        run: |
+          git config --global user.name "GitHub Actions Bot"
+          git config --global user.email "actions@github.com"
+      
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23.7'
+          check-latest: true
+      
+      - name: Verify Go Version
+        run: go version
+      
+      - name: Clone Go repository
+        run: |
+          git clone --depth=1 https://github.com/golang/go golang-repo
+          cd golang-repo
+          echo "GO_REPO_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+      
+      - name: Check if new changes exist in upstream
+        id: check_changes
+        run: |
+          # If force_update is set to true, always update
+          if [[ "${{ github.event.inputs.force_update }}" == "true" ]]; then
+            echo "Force update requested, proceeding with update"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "$GO_REPO_COMMIT" > last_processed_commit.txt
+            exit 0
+          fi
+          
+          # Check if we have a file that tracks the last processed commit
+          if [ -f last_processed_commit.txt ]; then
+            LAST_PROCESSED_COMMIT=$(cat last_processed_commit.txt)
+            echo "Last processed commit: $LAST_PROCESSED_COMMIT"
+            
+            if [ "$LAST_PROCESSED_COMMIT" == "$GO_REPO_COMMIT" ]; then
+              echo "No new changes in golang/go repository"
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            else
+              echo "New changes detected in golang/go repository"
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "$GO_REPO_COMMIT" > last_processed_commit.txt
+            fi
+          else
+            echo "First time running workflow or tracking file not found"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "$GO_REPO_COMMIT" > last_processed_commit.txt
+          fi
+      
+      - name: Extract Go version
+        id: extract_version
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          cd golang-repo
+          # Extract version from src/internal/goversion/goversion.go
+          GOVERSION_SOURCE=$(cat src/internal/goversion/goversion.go)
+          VERSION_NUM=$(echo "$GOVERSION_SOURCE" | grep -oP 'const Version = \K[0-9]+')
+          GO_VERSION="1.${VERSION_NUM}"
+          echo "go_version=${GO_VERSION}" >> $GITHUB_OUTPUT
+          echo "Go version: ${GO_VERSION}"
+      
+      - name: Create update branch
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          # Create a new branch for the update
+          GO_VERSION="${{ steps.extract_version.outputs.go_version }}"
+          UPDATE_BRANCH="update-golang-${GO_VERSION}-$(date +%Y%m%d)"
+          echo "UPDATE_BRANCH=${UPDATE_BRANCH}" >> $GITHUB_ENV
+          
+          git checkout -b ${UPDATE_BRANCH}
+      
+      - name: Sync Go source code
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          # Create merged directory
+          mkdir -p merged-golang-repo
+          
+          # Copy the Go source files we need to modify
+          # These are the main directories we need to track from the original Go repo
+          cp -r golang-repo/src merged-golang-repo/
+          
+          # Apply our custom changes to the merged repo
+          # Keep our modifications to specific files
+          mkdir -p merged-golang-repo/src/cmd/compile/internal/base/
+          mkdir -p merged-golang-repo/src/cmd/compile/internal/types2/
+          mkdir -p merged-golang-repo/src/cmd/dist/
+          
+          cp -f src/cmd/compile/internal/base/print.go merged-golang-repo/src/cmd/compile/internal/base/print.go
+          cp -f src/cmd/compile/internal/types2/errors.go merged-golang-repo/src/cmd/compile/internal/types2/errors.go
+          cp -f src/cmd/compile/internal/types2/api.go merged-golang-repo/src/cmd/compile/internal/types2/api.go
+          cp -f src/cmd/dist/build.go merged-golang-repo/src/cmd/dist/build.go
+          
+          # Update our src directory with the merged code
+          rm -rf src
+          cp -r merged-golang-repo/src .
+      
+      - name: Update commit tracking file
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          # Store the Go repo commit hash we just processed
+          echo "$GO_REPO_COMMIT" > last_processed_commit.txt
+      
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          # Add all changes to git
+          git add src/ last_processed_commit.txt
+          
+          # Commit the changes
+          GO_VERSION="${{ steps.extract_version.outputs.go_version }}"
+          git commit -m "Update to Go ${GO_VERSION}" -m "Automatically merged with golang/go at commit ${GO_REPO_COMMIT}"
+          
+          # Push to the update branch
+          git push origin ${UPDATE_BRANCH}
+      
+      - name: Create PR for the changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Create PR using the GitHub CLI
+          GO_VERSION="${{ steps.extract_version.outputs.go_version }}"
+          PR_TITLE="Update to Go ${GO_VERSION}"
+          PR_BODY="This PR updates Go-Easy with the latest changes from golang/go repository at commit ${GO_REPO_COMMIT}. This update was performed automatically by GitHub Actions."
+          
+          gh pr create --title "${PR_TITLE}" --body "${PR_BODY}" --base master --head ${UPDATE_BRANCH}
+          
+          # Auto-approve and merge immediately
+          gh pr merge ${UPDATE_BRANCH} --auto --squash 
