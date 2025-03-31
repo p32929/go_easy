@@ -1,0 +1,266 @@
+name: Build and Release Go-Easy for Linux
+
+on:
+  schedule:
+    # Check for updates daily at midnight UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if no changes are detected'
+        type: boolean
+        default: false
+      version_suffix:
+        description: 'Custom version suffix (default is -easy)'
+        type: string
+        default: '-easy'
+      skip_release:
+        description: 'Skip creating GitHub release'
+        type: boolean
+        default: false
+
+jobs:
+  check-for-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check_changes.outputs.has_changes }}
+      go_version: ${{ steps.extract_version.outputs.go_version }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      
+      - name: Check repository structure
+        run: |
+          echo "Checking required files..."
+          ls -R src/cmd/compile/internal/base/
+          ls -R src/cmd/compile/internal/types2/
+          ls -R src/cmd/dist/
+      
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23.7'
+          check-latest: true
+      
+      - name: Verify Go Version
+        run: go version
+      
+      - name: Clone Go repository
+        run: |
+          git clone --depth=1 https://github.com/golang/go golang-repo
+          cd golang-repo
+          echo "GO_REPO_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+      
+      - name: Check if new changes exist in upstream
+        id: check_changes
+        run: |
+          # If force_build is set to true, always build
+          if [[ "${{ github.event.inputs.force_build }}" == "true" ]]; then
+            echo "Force build requested, proceeding with build"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "$GO_REPO_COMMIT" > last_processed_commit.txt
+            exit 0
+          fi
+          
+          # Check if we have a file that tracks the last processed commit
+          if [ -f last_processed_commit.txt ]; then
+            LAST_PROCESSED_COMMIT=$(cat last_processed_commit.txt)
+            echo "Last processed commit: $LAST_PROCESSED_COMMIT"
+            
+            if [ "$LAST_PROCESSED_COMMIT" == "$GO_REPO_COMMIT" ]; then
+              echo "No new changes in golang/go repository"
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            else
+              echo "New changes detected in golang/go repository"
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "$GO_REPO_COMMIT" > last_processed_commit.txt
+            fi
+          else
+            echo "First time running workflow or tracking file not found"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "$GO_REPO_COMMIT" > last_processed_commit.txt
+          fi
+
+      - name: Extract Go version
+        id: extract_version
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          cd golang-repo
+          # Extract version from src/internal/goversion/goversion.go
+          GOVERSION_SOURCE=$(cat src/internal/goversion/goversion.go)
+          VERSION_NUM=$(echo "$GOVERSION_SOURCE" | grep -oP 'const Version = \K[0-9]+')
+          GO_VERSION="1.${VERSION_NUM}"
+          echo "go_version=${GO_VERSION}" >> $GITHUB_OUTPUT
+          echo "Go version: ${GO_VERSION}"
+      
+      - name: Save commit tracking file
+        if: steps.check_changes.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: commit-tracking
+          path: last_processed_commit.txt
+  
+  build:
+    needs: check-for-changes
+    if: needs.check-for-changes.outputs.has_changes == 'true'
+    strategy:
+      matrix:
+        include:
+          # Linux builds for various architectures
+          - os: ubuntu-latest
+            platform: linux
+            arch: amd64
+          - os: ubuntu-latest
+            platform: linux
+            arch: 386
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm64
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23.7'
+          check-latest: true
+      
+      - name: Verify Go Version
+        run: go version
+      
+      - name: Clone Go repository
+        run: |
+          git clone --depth=1 https://github.com/golang/go golang-repo
+      
+      - name: Download commit tracking file
+        uses: actions/download-artifact@v4
+        with:
+          name: commit-tracking
+      
+      - name: Apply Go-Easy changes
+        run: |
+          # Apply our custom changes for Go-Easy
+          cp -f src/cmd/compile/internal/base/print.go golang-repo/src/cmd/compile/internal/base/print.go
+          cp -f src/cmd/compile/internal/types2/errors.go golang-repo/src/cmd/compile/internal/types2/errors.go
+          cp -f src/cmd/compile/internal/types2/api.go golang-repo/src/cmd/compile/internal/types2/api.go
+          cp -f src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go
+          
+          cd golang-repo
+          echo "Set GOOS=${{ matrix.platform }} and GOARCH=${{ matrix.arch }}"
+      
+      - name: Build Go
+        run: |
+          # Verify Go version first
+          go version
+          GOPATH=$(which go)
+          GOROOT=$(dirname $(dirname $GOPATH))
+          echo "Go executable path: $GOPATH"
+          echo "GOROOT: $GOROOT"
+          
+          # Set the bootstrap Go root
+          export GOROOT_BOOTSTRAP=$GOROOT
+          echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP"
+          
+          cd golang-repo
+          cd src
+          
+          # Set build environment variables
+          export CGO_ENABLED=0
+          export GO111MODULE=off
+          export GOTOOLCHAIN=local
+          export GOOS=${{ matrix.platform }}
+          export GOARCH=${{ matrix.arch }}
+          
+          echo "Environment variables:"
+          echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP" 
+          echo "CGO_ENABLED: $CGO_ENABLED"
+          echo "GO111MODULE: $GO111MODULE"
+          echo "GOTOOLCHAIN: $GOTOOLCHAIN"
+          echo "GOOS: $GOOS"
+          echo "GOARCH: $GOARCH"
+          
+          ./make.bash
+      
+      - name: Create package
+        run: |
+          cd golang-repo
+          # Verify the build output exists
+          ls -la
+          
+          # Create archive name with proper variable handling
+          GO_VERSION='${{ needs.check-for-changes.outputs.go_version }}'
+          VERSION_SUFFIX='${{ github.event.inputs.version_suffix }}'
+          if [ -z "$VERSION_SUFFIX" ]; then
+            VERSION_SUFFIX="-easy"
+          fi
+          PLATFORM='${{ matrix.platform }}'
+          ARCH='${{ matrix.arch }}'
+          ARCHIVE_NAME="go${GO_VERSION}${VERSION_SUFFIX}-${PLATFORM}-${ARCH}"
+          
+          echo "Creating archive: ${ARCHIVE_NAME}.tar.gz"
+          echo "Current directory contents:"
+          ls -la
+          
+          # Create archive from the required directories
+          if [ -d "bin" ] && [ -d "pkg" ] && [ -d "src" ]; then
+            # We're in the right directory, create tar directly
+            tar -czf "${ARCHIVE_NAME}.tar.gz" bin/ pkg/ src/ VERSION.cache
+          else
+            echo "Error: Required directories not found"
+            pwd
+            ls -la
+            exit 1
+          fi
+          
+          # Create dist directory and move archive
+          mkdir -p ../dist
+          mv "${ARCHIVE_NAME}.tar.gz" ../dist/
+          
+          echo "Final archive contents:"
+          ls -la ../dist
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/
+          retention-days: 1
+  
+  release:
+    needs: [check-for-changes, build]
+    runs-on: ubuntu-latest
+    if: needs.check-for-changes.outputs.has_changes == 'true' && github.event.inputs.skip_release != 'true'
+    
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+      
+      - name: Prepare release files
+        run: |
+          mkdir -p ./release-files
+          find ./artifacts -type f -not -path "*/commit-tracking/*" -exec cp {} ./release-files/ \;
+          ls -la ./release-files/
+      
+      - name: Create or update release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "Go ${{ needs.check-for-changes.outputs.go_version }}${{ github.event.inputs.version_suffix || '-easy' }}"
+          tag_name: "v${{ needs.check-for-changes.outputs.go_version }}${{ github.event.inputs.version_suffix || '-easy' }}"
+          files: ./release-files/*
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          generate_release_notes: true 
