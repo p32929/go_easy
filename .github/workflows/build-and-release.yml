@@ -1,0 +1,236 @@
+name: Build and Release Go-Easy
+
+on:
+  schedule:
+    # Check for updates daily at midnight UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    # Allow manual triggering
+
+jobs:
+  check-for-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.check_changes.outputs.has_changes }}
+      go_version: ${{ steps.extract_version.outputs.go_version }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+      
+      - name: Clone Go repository
+        run: |
+          git clone --depth=1 https://github.com/golang/go golang-repo
+          cd golang-repo
+          echo "GO_REPO_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
+      
+      - name: Check if new changes exist in upstream
+        id: check_changes
+        run: |
+          # Check if we have a file that tracks the last processed commit
+          if [ -f last_processed_commit.txt ]; then
+            LAST_PROCESSED_COMMIT=$(cat last_processed_commit.txt)
+            echo "Last processed commit: $LAST_PROCESSED_COMMIT"
+            
+            if [ "$LAST_PROCESSED_COMMIT" == "$GO_REPO_COMMIT" ]; then
+              echo "No new changes in golang/go repository"
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+            else
+              echo "New changes detected in golang/go repository"
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "$GO_REPO_COMMIT" > last_processed_commit.txt
+            fi
+          else
+            echo "First time running workflow or tracking file not found"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "$GO_REPO_COMMIT" > last_processed_commit.txt
+          fi
+
+      - name: Extract Go version
+        id: extract_version
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          cd golang-repo
+          # Check VERSION file first
+          if [ -f VERSION ]; then
+            GO_VERSION=$(cat VERSION | head -n 1)
+          else
+            # Extract version from src/cmd/dist/build.go if VERSION doesn't exist
+            GOVERSION_SOURCE=$(cat src/internal/goversion/goversion.go)
+            VERSION_NUM=$(echo "$GOVERSION_SOURCE" | grep -oP 'const Version = \K[0-9]+')
+            GO_VERSION="go1.${VERSION_NUM}"
+            
+            # Check if this is a release branch
+            if git branch -r | grep -q "release-branch.go1.${VERSION_NUM}"; then
+              # This is a release branch, use just go1.X
+              GO_VERSION="go1.${VERSION_NUM}"
+            else
+              # This is development, use full commit hash
+              COMMIT_HASH=$(git rev-parse --short HEAD)
+              COMMIT_DATE=$(git show -s --format=%ci HEAD | cut -d' ' -f1)
+              GO_VERSION="devel ${GO_VERSION}-${COMMIT_HASH} ${COMMIT_DATE}"
+            fi
+          fi
+          
+          # Format the version string for the release name
+          RELEASE_VERSION=$(echo "$GO_VERSION" | sed 's/^go//')
+          
+          echo "go_version=${RELEASE_VERSION}" >> $GITHUB_OUTPUT
+          echo "Go version: ${GO_VERSION}"
+          echo "Release version: ${RELEASE_VERSION}"
+      
+      - name: Save commit tracking file
+        if: steps.check_changes.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v3
+        with:
+          name: commit-tracking
+          path: last_processed_commit.txt
+  
+  build:
+    needs: check-for-changes
+    if: needs.check-for-changes.outputs.has_changes == 'true'
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - os: ubuntu-latest
+            platform: linux
+            arch: amd64
+          - os: ubuntu-latest
+            platform: linux
+            arch: 386
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm64
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm
+          # macOS builds
+          - os: macos-latest
+            platform: darwin
+            arch: amd64
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+          # Windows builds
+          - os: windows-latest
+            platform: windows
+            arch: amd64
+          - os: windows-latest
+            platform: windows
+            arch: 386
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+      
+      - name: Clone Go repository
+        run: |
+          git clone --depth=1 https://github.com/golang/go golang-repo
+      
+      - name: Download commit tracking file
+        uses: actions/download-artifact@v3
+        with:
+          name: commit-tracking
+      
+      - name: Apply Go-Easy changes
+        run: |
+          # Apply our changes to make unused variable warnings
+          cp -f src/cmd/compile/internal/base/print.go golang-repo/src/cmd/compile/internal/base/print.go
+          cp -f src/cmd/compile/internal/types2/errors.go golang-repo/src/cmd/compile/internal/types2/errors.go
+          cp -f src/cmd/compile/internal/types2/api.go golang-repo/src/cmd/compile/internal/types2/api.go
+          cp -f src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go
+          
+          # Set environment variables for cross-compilation
+          cd golang-repo
+          echo "Set GOOS=${{ matrix.platform }} and GOARCH=${{ matrix.arch }}"
+      
+      - name: Build Go for Linux/macOS
+        if: matrix.platform != 'windows'
+        run: |
+          cd golang-repo/src
+          GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} ./make.bash
+      
+      - name: Build Go for Windows
+        if: matrix.platform == 'windows'
+        run: |
+          cd golang-repo/src
+          $env:GOARCH="${{ matrix.arch }}"
+          $env:GOOS="${{ matrix.platform }}"
+          .\make.bat
+      
+      - name: Create package
+        run: |
+          cd golang-repo
+          # Create archive based on platform
+          GO_VERSION="${{ needs.check-for-changes.outputs.go_version }}"
+          ARCHIVE_NAME="go${GO_VERSION}-easy-${{ matrix.platform }}-${{ matrix.arch }}"
+          
+          if [ "${{ matrix.platform }}" == "windows" ]; then
+            # For Windows, create a zip archive
+            7z a -tzip ${ARCHIVE_NAME}.zip go
+          else
+            # For Linux and macOS, create a tar.gz archive
+            tar -czf ${ARCHIVE_NAME}.tar.gz go
+          fi
+          
+          echo "Created archive: ${ARCHIVE_NAME}"
+          
+          # Move archive to a location for uploading
+          mkdir -p ../dist
+          if [ "${{ matrix.platform }}" == "windows" ]; then
+            mv ${ARCHIVE_NAME}.zip ../dist/
+          else
+            mv ${ARCHIVE_NAME}.tar.gz ../dist/
+          fi
+        shell: bash
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: go-${{ matrix.platform }}-${{ matrix.arch }}
+          path: dist/
+          retention-days: 1
+  
+  release:
+    needs: [check-for-changes, build]
+    runs-on: ubuntu-latest
+    if: needs.check-for-changes.outputs.has_changes == 'true'
+    
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: ./artifacts
+      
+      - name: Prepare release files
+        run: |
+          mkdir -p ./release-files
+          find ./artifacts -type f -not -path "*/commit-tracking/*" -exec cp {} ./release-files/ \;
+          ls -la ./release-files/
+      
+      - name: Create or update release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "Go ${{ needs.check-for-changes.outputs.go_version }}-easy"
+          tag_name: "v${{ needs.check-for-changes.outputs.go_version }}-easy"
+          files: ./release-files/*
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          generate_release_notes: true 
