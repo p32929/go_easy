@@ -10,19 +10,11 @@ This is a modified version of the Go compiler that treats unused variables as wa
 
 ## Automatic Builds
 
-This repository includes two GitHub Actions workflows:
-
-1. **Test Build Process** (`test-build.yml`):
-   - Triggers automatically when you push to the master/main branch
-   - Tests the build process on Ubuntu only (to save time)
-   - Verifies that the Go-Easy modifications work correctly
-   - Uploads the built binary as an artifact for testing
-
-2. **Build and Release** (`build-and-release.yml`):
-   - Runs daily to check for updates to the Go repository
-   - Builds Go for multiple platforms when changes are detected
-   - Creates GitHub releases with the binary packages
-   - Can be manually triggered with custom options
+This repository includes a GitHub Actions workflow (`build-and-release.yml`) that:
+- Runs daily to check for updates to the Go repository
+- Builds Go for multiple platforms when changes are detected
+- Creates GitHub releases with the binary packages
+- Can be manually triggered with custom options
 
 ### Manual Workflow Trigger
 
