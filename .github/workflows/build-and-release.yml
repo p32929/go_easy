@@ -55,16 +55,6 @@ jobs:
           cd golang-repo
           echo "GO_REPO_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
       
-      - name: Ensure dependencies are available
-        run: |
-          # Create a temporary go.mod file if needed
-          if [ ! -f go.mod ]; then
-            go mod init go-easy
-          fi
-          # Ensure go.sum is present and dependencies are available
-          go mod tidy
-        working-directory: golang-repo
-      
       - name: Check if new changes exist in upstream
         id: check_changes
         run: |
@@ -187,16 +177,6 @@ jobs:
       - name: Clone Go repository
         run: |
           git clone --depth=1 https://github.com/golang/go golang-repo
-      
-      - name: Ensure dependencies are available
-        run: |
-          # Create a temporary go.mod file if needed
-          if [ ! -f go.mod ]; then
-            go mod init go-easy
-          fi
-          # Ensure go.sum is present and dependencies are available
-          go mod tidy
-        working-directory: golang-repo
       
       - name: Download commit tracking file
         uses: actions/download-artifact@v4

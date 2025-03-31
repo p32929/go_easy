@@ -38,16 +38,6 @@ jobs:
           cd golang-repo
           echo "GO_REPO_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
       
-      - name: Ensure dependencies are available
-        run: |
-          # Create a temporary go.mod file if needed
-          if [ ! -f go.mod ]; then
-            go mod init go-easy
-          fi
-          # Ensure go.sum is present and dependencies are available
-          go mod tidy
-        working-directory: golang-repo
-      
       - name: Apply Go-Easy changes
         run: |
           # Apply our changes to make unused variable warnings
