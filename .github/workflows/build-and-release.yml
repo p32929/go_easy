@@ -192,6 +192,13 @@ jobs:
           cp -f src/cmd/compile/internal/types2/api.go golang-repo/src/cmd/compile/internal/types2/api.go
           cp -f src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go
           
+          # Check and modify go.mod to ensure compatibility with 1.24.1
+          if [ -f golang-repo/go.mod ]; then
+            echo "Modifying go.mod to work with Go 1.24.1"
+            sed -i.bak 's/go 1\.25/go 1.24/' golang-repo/go.mod
+            cat golang-repo/go.mod
+          fi
+          
           # Set environment variables for cross-compilation
           cd golang-repo
           echo "Set GOOS=${{ matrix.platform }} and GOARCH=${{ matrix.arch }}"
@@ -205,6 +212,13 @@ jobs:
           Copy-Item -Force src\cmd\compile\internal\types2\errors.go golang-repo\src\cmd\compile\internal\types2\errors.go
           Copy-Item -Force src\cmd\compile\internal\types2\api.go golang-repo\src\cmd\compile\internal\types2\api.go
           Copy-Item -Force src\cmd\dist\build.go golang-repo\src\cmd\dist\build.go
+          
+          # Check and modify go.mod to ensure compatibility with 1.24.1
+          if (Test-Path golang-repo\go.mod) {
+            Write-Host "Modifying go.mod to work with Go 1.24.1"
+            (Get-Content golang-repo\go.mod) -replace 'go 1\.25', 'go 1.24' | Set-Content golang-repo\go.mod
+            Get-Content golang-repo\go.mod
+          }
           
           # Set environment variables for cross-compilation
           cd golang-repo
@@ -234,7 +248,16 @@ jobs:
             echo "}" >> "$VERSION_DIR/version.go"
           fi
           
-          cd golang-repo/src
+          cd golang-repo
+          
+          # Check again and modify go.mod to ensure compatibility with 1.24.1
+          if [ -f go.mod ]; then
+            echo "Double-checking go.mod to work with Go 1.24.1"
+            sed -i.bak 's/go 1\.25/go 1.24/' go.mod
+            cat go.mod
+          fi
+          
+          cd src
           # Set bootstrap environment - explicitly using the detected Go installation
           export GOROOT_BOOTSTRAP=$GOROOT
           echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP"
@@ -284,7 +307,16 @@ jobs:
               "}" | Out-File -FilePath $versionFile -Append
           }
           
-          cd golang-repo\src
+          cd golang-repo
+          
+          # Check again and modify go.mod to ensure compatibility with 1.24.1
+          if (Test-Path go.mod) {
+            Write-Host "Double-checking go.mod to work with Go 1.24.1"
+            (Get-Content go.mod) -replace 'go 1\.25', 'go 1.24' | Set-Content go.mod
+            Get-Content go.mod
+          }
+          
+          cd src
           # Set bootstrap environment - explicitly using the detected Go installation
           $env:GOROOT_BOOTSTRAP = $goRoot
           Write-Host "GOROOT_BOOTSTRAP: $env:GOROOT_BOOTSTRAP"
