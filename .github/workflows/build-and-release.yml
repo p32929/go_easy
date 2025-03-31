@@ -43,7 +43,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.24.1'
+          go-version: '1.20.12'  # Using older Go version for bootstrapping
           check-latest: true
       
       - name: Verify Go Version
@@ -168,7 +168,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.24.1'
+          go-version: '1.20.12'  # Using older Go version for bootstrapping
           check-latest: true
       
       - name: Verify Go Version
@@ -192,11 +192,9 @@ jobs:
           cp -f src/cmd/compile/internal/types2/api.go golang-repo/src/cmd/compile/internal/types2/api.go
           cp -f src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go
           
-          # Remove go.mod and go.sum to prevent version constraints
-          if [ -f golang-repo/go.mod ]; then
-            echo "Removing go.mod to prevent Go version requirement issues"
-            rm -f golang-repo/go.mod golang-repo/go.sum
-          fi
+          # More aggressive approach: Find and remove all module files
+          find golang-repo -name "go.mod" -o -name "go.sum" -o -name "go.work" | xargs rm -f
+          echo "Removed all go.mod, go.sum, and go.work files from the repo"
           
           # Set environment variables for cross-compilation
           cd golang-repo
@@ -212,12 +210,11 @@ jobs:
           Copy-Item -Force src\cmd\compile\internal\types2\api.go golang-repo\src\cmd\compile\internal\types2\api.go
           Copy-Item -Force src\cmd\dist\build.go golang-repo\src\cmd\dist\build.go
           
-          # Remove go.mod and go.sum to prevent version constraints
-          if (Test-Path golang-repo\go.mod) {
-            Write-Host "Removing go.mod to prevent Go version requirement issues"
-            if (Test-Path golang-repo\go.mod) { Remove-Item golang-repo\go.mod -Force }
-            if (Test-Path golang-repo\go.sum) { Remove-Item golang-repo\go.sum -Force }
-          }
+          # More aggressive approach: Find and remove all module files
+          Get-ChildItem -Path golang-repo -Recurse -Filter "go.mod" | Remove-Item -Force
+          Get-ChildItem -Path golang-repo -Recurse -Filter "go.sum" | Remove-Item -Force
+          Get-ChildItem -Path golang-repo -Recurse -Filter "go.work" | Remove-Item -Force
+          Write-Host "Removed all go.mod, go.sum, and go.work files from the repo"
           
           # Set environment variables for cross-compilation
           cd golang-repo
@@ -243,38 +240,29 @@ jobs:
             echo "" >> "$VERSION_DIR/version.go"
             echo "// Version returns the Go version string." >> "$VERSION_DIR/version.go"
             echo "func Version() string {" >> "$VERSION_DIR/version.go"
-            echo "    return \"go1.24.1\"" >> "$VERSION_DIR/version.go"
+            echo "    return \"go1.20.12\"" >> "$VERSION_DIR/version.go"
             echo "}" >> "$VERSION_DIR/version.go"
           fi
           
           cd golang-repo
           
           # More aggressive approach: completely bypass go.mod
-          rm -f go.mod go.sum
-          echo "Removed go.mod and go.sum to prevent Go version requirement issues"
+          find . -name "go.mod" -o -name "go.sum" -o -name "go.work" | xargs rm -f
+          echo "Removed all go.mod, go.sum, and go.work files"
           
-          # Create a go.work file to use Go 1.24 without go.mod constraints
-          echo "go 1.24" > go.work
-          echo "use ." >> go.work
-          echo "Created go.work file to override Go version requirements:"
-          cat go.work
-          
+          # The problem might be modules - let's disable them completely
           cd src
           # Set bootstrap environment - explicitly using the detected Go installation
           export GOROOT_BOOTSTRAP=$GOROOT
           echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP"
           
           # Create a VERSION file to ensure we're not hitting bootstrapping issues
-          echo "go1.24.1" > ../VERSION
+          echo "go1.20.12" > ../VERSION
           
-          # Prevent it from trying to download a newer version
-          echo "GOTOOLCHAIN=local" >> $GITHUB_ENV
-          export GOTOOLCHAIN=local
+          # Disable module support completely
+          export GO111MODULE=off
           
-          # Enable module support
-          export GO111MODULE=on
-          
-          # Force using go 1.24
+          # Force using local toolchain
           export GOTOOLCHAIN=local
           
           # Add additional debugging
@@ -284,7 +272,7 @@ jobs:
           echo "GOOS: ${{ matrix.platform }}"
           echo "GOTOOLCHAIN: $GOTOOLCHAIN"
           
-          GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} GOTOOLCHAIN=local ./make.bash -no-clean
+          GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} GO111MODULE=off GOTOOLCHAIN=local ./make.bash
       
       - name: Build Go for Windows
         if: matrix.platform == 'windows'
@@ -308,22 +296,17 @@ jobs:
               "" | Out-File -FilePath $versionFile -Append
               "// Version returns the Go version string." | Out-File -FilePath $versionFile -Append
               "func Version() string {" | Out-File -FilePath $versionFile -Append
-              '    return "go1.24.1"' | Out-File -FilePath $versionFile -Append
+              '    return "go1.20.12"' | Out-File -FilePath $versionFile -Append
               "}" | Out-File -FilePath $versionFile -Append
           }
           
           cd golang-repo
           
-          # More aggressive approach: completely bypass go.mod
-          if (Test-Path go.mod) { Remove-Item go.mod -Force }
-          if (Test-Path go.sum) { Remove-Item go.sum -Force }
-          Write-Host "Removed go.mod and go.sum to prevent Go version requirement issues"
-          
-          # Create a go.work file to use Go 1.24 without go.mod constraints
-          "go 1.24" | Out-File -FilePath go.work
-          "use ." | Out-File -FilePath go.work -Append
-          Write-Host "Created go.work file to override Go version requirements:"
-          Get-Content go.work
+          # More aggressive approach: Find and remove all module files
+          Get-ChildItem -Path . -Recurse -Filter "go.mod" | Remove-Item -Force
+          Get-ChildItem -Path . -Recurse -Filter "go.sum" | Remove-Item -Force
+          Get-ChildItem -Path . -Recurse -Filter "go.work" | Remove-Item -Force
+          Write-Host "Removed all go.mod, go.sum, and go.work files"
           
           cd src
           # Set bootstrap environment - explicitly using the detected Go installation
@@ -331,13 +314,13 @@ jobs:
           Write-Host "GOROOT_BOOTSTRAP: $env:GOROOT_BOOTSTRAP"
           
           # Create a VERSION file to ensure we're not hitting bootstrapping issues
-          Set-Content -Path "..\VERSION" -Value "go1.24.1"
+          Set-Content -Path "..\VERSION" -Value "go1.20.12"
           
-          # Prevent it from trying to download a newer version
+          # Disable module support completely
+          $env:GO111MODULE = "off"
+          
+          # Force using local toolchain
           $env:GOTOOLCHAIN = "local"
-          
-          # Enable module support and specify bootstrap options
-          $env:GO111MODULE = "on"
           
           $env:GOARCH = "${{ matrix.arch }}"
           $env:GOOS = "${{ matrix.platform }}"
@@ -349,6 +332,7 @@ jobs:
           Write-Host "GOOS: $env:GOOS"
           Write-Host "GOTOOLCHAIN: $env:GOTOOLCHAIN"
           
+          $env:GO111MODULE = "off"
           $env:GOTOOLCHAIN = "local"
           .\make.bat
       
