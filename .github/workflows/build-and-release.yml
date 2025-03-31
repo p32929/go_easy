@@ -32,6 +32,10 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.24.1'
+          check-latest: true
+      
+      - name: Verify Go Version
+        run: go version
       
       - name: Clone Go repository
         run: |
@@ -145,6 +149,10 @@ jobs:
         uses: actions/setup-go@v4
         with:
           go-version: '1.24.1'
+          check-latest: true
+      
+      - name: Verify Go Version
+        run: go version
       
       - name: Clone Go repository
         run: |
@@ -185,14 +193,26 @@ jobs:
       - name: Build Go for Linux/macOS
         if: matrix.platform != 'windows'
         run: |
+          # Verify Go version first
+          go version
+          
           cd golang-repo/src
+          # Set bootstrap environment - ensure we're using our installed Go version for bootstrap
+          export GOROOT_BOOTSTRAP=$GOROOT
+          
           GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} ./make.bash
       
       - name: Build Go for Windows
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
+          # Verify Go version first
+          go version
+          
           cd golang-repo\src
+          # Set bootstrap environment - ensure we're using our installed Go version for bootstrap
+          $env:GOROOT_BOOTSTRAP = $env:GOROOT
+          
           $env:GOARCH = "${{ matrix.arch }}"
           $env:GOOS = "${{ matrix.platform }}"
           .\make.bat
