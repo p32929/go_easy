@@ -1,4 +1,4 @@
-name: Build and Release Go-Easy
+name: Build and Release Go-Easy for macOS
 
 on:
   schedule:
@@ -192,20 +192,26 @@ jobs:
           # Verify the build output exists
           ls -la
           
-          # Create archive name
-          GO_VERSION="${{ needs.check-for-changes.outputs.go_version }}"
-          VERSION_SUFFIX="${{ github.event.inputs.version_suffix || '-easy' }}"
-          ARCHIVE_NAME="go${GO_VERSION}${VERSION_SUFFIX}.${matrix.platform}-${matrix.arch}"
+          # Create archive name with proper quoting and variable handling
+          GO_VERSION='${{ needs.check-for-changes.outputs.go_version }}'
+          VERSION_SUFFIX='${{ github.event.inputs.version_suffix }}'
+          if [ -z "$VERSION_SUFFIX" ]; then
+            VERSION_SUFFIX="-easy"
+          fi
+          PLATFORM='${{ matrix.platform }}'
+          ARCH='${{ matrix.arch }}'
+          ARCHIVE_NAME="go${GO_VERSION}${VERSION_SUFFIX}-${PLATFORM}-${ARCH}"
           
           echo "Creating archive: ${ARCHIVE_NAME}.tar.gz"
           echo "Current directory contents:"
           ls -la
           
           # Create archive from the go directory
-          if [ -d "go" ]; then
-            tar -czf "${ARCHIVE_NAME}.tar.gz" go/
+          if [ -d "bin" ] && [ -d "pkg" ] && [ -d "src" ]; then
+            # We're in the right directory, create tar directly
+            tar -czf "${ARCHIVE_NAME}.tar.gz" bin/ pkg/ src/ VERSION.cache
           else
-            echo "Error: 'go' directory not found"
+            echo "Error: Required directories not found"
             pwd
             ls -la
             exit 1
