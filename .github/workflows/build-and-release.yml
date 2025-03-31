@@ -43,6 +43,16 @@ jobs:
           cd golang-repo
           echo "GO_REPO_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
       
+      - name: Ensure dependencies are available
+        run: |
+          # Create a temporary go.mod file if needed
+          if [ ! -f go.mod ]; then
+            go mod init go-easy
+          fi
+          # Ensure go.sum is present and dependencies are available
+          go mod tidy
+        working-directory: golang-repo
+      
       - name: Check if new changes exist in upstream
         id: check_changes
         run: |
@@ -158,6 +168,16 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/golang/go golang-repo
       
+      - name: Ensure dependencies are available
+        run: |
+          # Create a temporary go.mod file if needed
+          if [ ! -f go.mod ]; then
+            go mod init go-easy
+          fi
+          # Ensure go.sum is present and dependencies are available
+          go mod tidy
+        working-directory: golang-repo
+      
       - name: Download commit tracking file
         uses: actions/download-artifact@v4
         with:
@@ -200,6 +220,22 @@ jobs:
           echo "Go executable path: $GOPATH"
           echo "GOROOT: $GOROOT"
           
+          # Create go/version directory structure if needed for bootstrapping
+          VERSION_DIR="$GOROOT/src/go/version"
+          if [ ! -d "$VERSION_DIR" ]; then
+            echo "Creating go/version directory at $VERSION_DIR"
+            mkdir -p "$VERSION_DIR"
+            # Create a simple version.go file with minimal implementation
+            cat > "$VERSION_DIR/version.go" << EOF
+package version
+
+// Version returns the Go version string.
+func Version() string {
+    return "go1.24.1"
+}
+EOF
+          fi
+          
           cd golang-repo/src
           # Set bootstrap environment - explicitly using the detected Go installation
           export GOROOT_BOOTSTRAP=$GOROOT
@@ -207,6 +243,15 @@ jobs:
           
           # Create a VERSION file to ensure we're not hitting bootstrapping issues
           echo "go1.24.1" > ../VERSION
+          
+          # Enable module support
+          export GO111MODULE=on
+          
+          # Add additional debugging
+          echo "Environment variables:"
+          echo "GO111MODULE: $GO111MODULE"
+          echo "GOARCH: ${{ matrix.arch }}"
+          echo "GOOS: ${{ matrix.platform }}"
           
           GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} ./make.bash
       
@@ -221,6 +266,23 @@ jobs:
           Write-Host "Go executable path: $goPath"
           Write-Host "GOROOT: $goRoot"
           
+          # Create go/version directory structure if needed for bootstrapping
+          $versionDir = Join-Path $goRoot "src\go\version"
+          if (-not (Test-Path $versionDir)) {
+              Write-Host "Creating go/version directory at $versionDir"
+              New-Item -ItemType Directory -Force -Path $versionDir
+              # Create a simple version.go file with minimal implementation
+              $versionContent = @"
+package version
+
+// Version returns the Go version string.
+func Version() string {
+    return "go1.24.1"
+}
+"@
+              Set-Content -Path (Join-Path $versionDir "version.go") -Value $versionContent
+          }
+          
           cd golang-repo\src
           # Set bootstrap environment - explicitly using the detected Go installation
           $env:GOROOT_BOOTSTRAP = $goRoot
@@ -229,8 +291,18 @@ jobs:
           # Create a VERSION file to ensure we're not hitting bootstrapping issues
           Set-Content -Path "..\VERSION" -Value "go1.24.1"
           
+          # Enable module support and specify bootstrap options
+          $env:GO111MODULE = "on"
+          
           $env:GOARCH = "${{ matrix.arch }}"
           $env:GOOS = "${{ matrix.platform }}"
+          
+          # Add additional debugging
+          Write-Host "Environment variables:"
+          Write-Host "GO111MODULE: $env:GO111MODULE"
+          Write-Host "GOARCH: $env:GOARCH"
+          Write-Host "GOOS: $env:GOOS"
+          
           .\make.bat
       
       - name: Create package (Unix)
