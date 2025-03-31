@@ -94,14 +94,13 @@ jobs:
           if [ -f VERSION ]; then
             GO_VERSION=$(cat VERSION | head -n 1)
           else
-            # Extract version from src/cmd/dist/build.go if VERSION doesn't exist
+            # Extract version from src/internal/goversion/goversion.go if VERSION doesn't exist
             GOVERSION_SOURCE=$(cat src/internal/goversion/goversion.go)
             VERSION_NUM=$(echo "$GOVERSION_SOURCE" | grep -oP 'const Version = \K[0-9]+')
             GO_VERSION="go1.${VERSION_NUM}"
             
             # Check if this is a release branch
             if git branch -r | grep -q "release-branch.go1.${VERSION_NUM}"; then
-              # This is a release branch, use just go1.X
               GO_VERSION="go1.${VERSION_NUM}"
             else
               # This is development, use full commit hash
@@ -186,21 +185,17 @@ jobs:
       - name: Apply Go-Easy changes (Unix)
         if: matrix.platform != 'windows'
         run: |
-          # Apply our changes to make unused variable warnings
+          # Apply our custom changes for Go-Easy
           cp -f src/cmd/compile/internal/base/print.go golang-repo/src/cmd/compile/internal/base/print.go
           cp -f src/cmd/compile/internal/types2/errors.go golang-repo/src/cmd/compile/internal/types2/errors.go
           cp -f src/cmd/compile/internal/types2/api.go golang-repo/src/cmd/compile/internal/types2/api.go
           cp -f src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go
           
-          # Create VERSION file for Go bootstrap
+          # Create VERSION file with bootstrap version
           echo "go1.22.6" > golang-repo/VERSION
           echo "Created VERSION file with bootstrap version go1.22.6"
           
-          # Remove module files to prevent version conflicts
-          find golang-repo -name "go.mod" -o -name "go.sum" -o -name "go.work" | xargs rm -f 2>/dev/null || true
-          echo "Removed all go.mod, go.sum, and go.work files from the repo"
-          
-          # Set environment variables for cross-compilation
+          # NOTE: Do not remove go.mod, go.sum, or go.work files – they are required for the build
           cd golang-repo
           echo "Set GOOS=${{ matrix.platform }} and GOARCH=${{ matrix.arch }}"
       
@@ -208,21 +203,17 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          # Apply our changes to make unused variable warnings
+          # Apply our custom changes for Go-Easy
           Copy-Item -Force src\cmd\compile\internal\base\print.go golang-repo\src\cmd\compile\internal\base\print.go
           Copy-Item -Force src\cmd\compile\internal\types2\errors.go golang-repo\src\cmd\compile\internal\types2\errors.go
           Copy-Item -Force src\cmd\compile\internal\types2\api.go golang-repo\src\cmd\compile\internal\types2\api.go
           Copy-Item -Force src\cmd\dist\build.go golang-repo\src\cmd\dist\build.go
           
-          # Create VERSION file for Go bootstrap
+          # Create VERSION file with bootstrap version
           Set-Content -Path "golang-repo\VERSION" -Value "go1.22.6"
           Write-Host "Created VERSION file with bootstrap version go1.22.6"
           
-          # Remove module files to prevent version conflicts
-          Get-ChildItem -Path golang-repo -Recurse -Include "go.mod","go.sum","go.work" | Remove-Item -Force -ErrorAction SilentlyContinue
-          Write-Host "Removed all go.mod, go.sum, and go.work files from the repo"
-          
-          # Set environment variables for cross-compilation
+          # NOTE: Do not remove go.mod, go.sum, or go.work files
           cd golang-repo
           echo "Set GOOS=${{ matrix.platform }} and GOARCH=${{ matrix.arch }}"
       
@@ -236,30 +227,25 @@ jobs:
           echo "Go executable path: $GOPATH"
           echo "GOROOT: $GOROOT"
           
-          # Set the bootstrap Go root - this is the key setting according to Go docs
+          # Set the bootstrap Go root – this is key according to the Go docs
           export GOROOT_BOOTSTRAP=$GOROOT
           echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP"
           
           cd golang-repo
           
-          # Create a VERSION file with our bootstrap version
+          # Ensure the VERSION file is set
           echo "go1.22.6" > VERSION
           
-          # Remove module files to prevent version conflicts
-          find . -name "go.mod" -o -name "go.sum" -o -name "go.work" | xargs rm -f 2>/dev/null || true
-          echo "Removed all go.mod, go.sum, and go.work files"
-          
-          # Build Go according to the official documentation
+          # Build Go using the official procedure
           cd src
           
-          # Set the cross-compilation environment variables
+          # Set cross-compilation environment variables
           export CGO_ENABLED=0
           export GO111MODULE=off
           export GOTOOLCHAIN=local
           export GOOS=${{ matrix.platform }}
           export GOARCH=${{ matrix.arch }}
           
-          # Add additional debugging
           echo "Environment variables:"
           echo "GOROOT_BOOTSTRAP: $GOROOT_BOOTSTRAP" 
           echo "CGO_ENABLED: $CGO_ENABLED"
@@ -268,7 +254,6 @@ jobs:
           echo "GOOS: $GOOS"
           echo "GOARCH: $GOARCH"
           
-          # Run the build
           ./make.bash
       
       - name: Build Go for Windows
@@ -282,30 +267,25 @@ jobs:
           Write-Host "Go executable path: $goPath"
           Write-Host "GOROOT: $goRoot"
           
-          # Set the bootstrap Go root - this is the key setting according to Go docs
+          # Set the bootstrap Go root as required
           $env:GOROOT_BOOTSTRAP = $goRoot
           Write-Host "GOROOT_BOOTSTRAP: $env:GOROOT_BOOTSTRAP"
           
           cd golang-repo
           
-          # Create a VERSION file with our bootstrap version
+          # Ensure the VERSION file is set
           Set-Content -Path "VERSION" -Value "go1.22.6"
           
-          # Remove module files to prevent version conflicts
-          Get-ChildItem -Path . -Recurse -Include "go.mod","go.sum","go.work" | Remove-Item -Force -ErrorAction SilentlyContinue
-          Write-Host "Removed all go.mod, go.sum, and go.work files"
-          
-          # Build Go according to the official documentation
+          # Build Go using the official documentation
           cd src
           
-          # Set the cross-compilation environment variables
+          # Set cross-compilation environment variables
           $env:CGO_ENABLED = "0"
           $env:GO111MODULE = "off"
           $env:GOTOOLCHAIN = "local"
           $env:GOOS = "${{ matrix.platform }}"
           $env:GOARCH = "${{ matrix.arch }}"
           
-          # Add additional debugging
           Write-Host "Environment variables:"
           Write-Host "GOROOT_BOOTSTRAP: $env:GOROOT_BOOTSTRAP"
           Write-Host "CGO_ENABLED: $env:CGO_ENABLED"
@@ -314,7 +294,6 @@ jobs:
           Write-Host "GOOS: $env:GOOS"
           Write-Host "GOARCH: $env:GOARCH"
           
-          # Run the build
           .\make.bat
       
       - name: Create package (Unix)
@@ -326,12 +305,10 @@ jobs:
           VERSION_SUFFIX="${{ github.event.inputs.version_suffix || '-easy' }}"
           ARCHIVE_NAME="go${GO_VERSION}${VERSION_SUFFIX}-${{ matrix.platform }}-${{ matrix.arch }}"
           
-          # For Linux and macOS, create a tar.gz archive
+          # Create a tar.gz archive for Linux/macOS
           tar -czf ${ARCHIVE_NAME}.tar.gz go
-          
           echo "Created archive: ${ARCHIVE_NAME}.tar.gz"
           
-          # Move archive to a location for uploading
           mkdir -p ../dist
           mv ${ARCHIVE_NAME}.tar.gz ../dist/
       
@@ -344,12 +321,10 @@ jobs:
           $VERSION_SUFFIX = "${{ github.event.inputs.version_suffix || '-easy' }}"
           $ARCHIVE_NAME = "go${GO_VERSION}${VERSION_SUFFIX}-${{ matrix.platform }}-${{ matrix.arch }}"
           
-          # For Windows, create a zip archive
+          # Create a zip archive for Windows
           7z a -tzip $ARCHIVE_NAME.zip go
-          
           Write-Host "Created archive: $ARCHIVE_NAME.zip"
           
-          # Move archive to a location for uploading
           New-Item -ItemType Directory -Force -Path ..\dist
           Move-Item $ARCHIVE_NAME.zip ..\dist\
       
