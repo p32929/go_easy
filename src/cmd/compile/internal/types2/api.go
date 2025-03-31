@@ -319,7 +319,7 @@ type Info struct {
 	// FileVersions maps a file to its Go version string.
 	// If the file doesn't specify a version, the reported
 	// string is Config.GoVersion.
-	// Version strings begin with “go”, like “go1.21”, and
+	// Version strings begin with "go", like "go1.21", and
 	// are suitable for use with the [go/version] package.
 	FileVersions map[*syntax.PosBase]string
 }
@@ -485,5 +485,40 @@ func (init *Initializer) String() string {
 // The clean path must not be empty or dot (".").
 func (conf *Config) Check(path string, files []*syntax.File, info *Info) (*Package, error) {
 	pkg := NewPackage(path, "")
-	return pkg, NewChecker(conf, pkg, info).Files(files)
+	
+	// Set up custom error handling to track if we only have unused variable errors
+	var onlyUnusedVarErrors = true // initially true, set to false if any other error type is found
+	var firstErr error
+	origError := conf.Error // save original error handler
+	
+	conf.Error = func(err error) {
+		terr, ok := err.(Error)
+		if !ok || terr.Code != UnusedVar {
+			// If this is not an unused variable error, mark that we have other errors
+			onlyUnusedVarErrors = false
+		}
+		
+		// Keep track of the first error
+		if firstErr == nil {
+			firstErr = err
+		}
+		
+		// Call the original error handler if present
+		if origError != nil {
+			origError(err)
+		}
+	}
+	
+	// Do the actual type checking
+	err := NewChecker(conf, pkg, info).Files(files)
+	
+	// Restore the original error handler
+	conf.Error = origError
+	
+	// If we only had unused variable errors, don't return an error
+	if err != nil && onlyUnusedVarErrors {
+		return pkg, nil
+	}
+	
+	return pkg, err
 }

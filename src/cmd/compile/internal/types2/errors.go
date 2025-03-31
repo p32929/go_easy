@@ -187,6 +187,11 @@ func (check *Checker) handleError(index int, pos syntax.Pos, code Code, msg stri
 		msg = "\t" + msg
 	}
 
+	// Add "warning:" prefix for unused variable errors
+	if code == UnusedVar && soft {
+		msg = "warning: " + msg
+	}
+
 	e := Error{
 		Pos:  pos,
 		Msg:  stripAnnotations(msg),

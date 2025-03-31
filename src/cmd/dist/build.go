@@ -405,7 +405,8 @@ func findgoversion() string {
 		// its content if available, which is empty at this point.
 		// Only use the VERSION file if it is non-empty.
 		if b != "" {
-			return b
+			// Append "-easy" to the version string
+			return b + "-easy"
 		}
 	}
 
@@ -414,7 +415,9 @@ func findgoversion() string {
 	// deleted by the clean command.
 	path = pathf("%s/VERSION.cache", goroot)
 	if isfile(path) {
-		return chomp(readfile(path))
+		version := chomp(readfile(path))
+		// Append "-easy" to the version string
+		return version + "-easy"
 	}
 
 	// Show a nicer error message if this isn't a Git repo.
@@ -438,6 +441,9 @@ func findgoversion() string {
 	}
 	version := fmt.Sprintf("devel go1.%s-", m[1])
 	version += chomp(run(goroot, CheckExit, "git", "log", "-n", "1", "--format=format:%h %cd", "HEAD"))
+
+	// Append "-easy" to the version string
+	version += "-easy"
 
 	// Cache version.
 	writefile(version, path, 0)

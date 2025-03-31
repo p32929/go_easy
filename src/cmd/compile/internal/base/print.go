@@ -137,7 +137,12 @@ func ErrorfAt(pos src.XPos, code errors.Code, format string, args ...interface{}
 	}
 
 	addErrorMsg(pos, code, "%s", msg)
-	numErrors++
+	
+	// Don't count unused variable errors as actual errors
+	// that would cause compilation to fail
+	if code != errors.UnusedVar {
+		numErrors++
+	}
 
 	hcrash()
 	if numErrors >= 10 && Flag.LowerE == 0 {
