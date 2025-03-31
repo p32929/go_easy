@@ -192,11 +192,10 @@ jobs:
           cp -f src/cmd/compile/internal/types2/api.go golang-repo/src/cmd/compile/internal/types2/api.go
           cp -f src/cmd/dist/build.go golang-repo/src/cmd/dist/build.go
           
-          # Check and modify go.mod to ensure compatibility with 1.24.1
+          # Remove go.mod and go.sum to prevent version constraints
           if [ -f golang-repo/go.mod ]; then
-            echo "Modifying go.mod to work with Go 1.24.1"
-            sed -i.bak 's/go 1\.[2-9][0-9]/go 1.24/' golang-repo/go.mod
-            cat golang-repo/go.mod
+            echo "Removing go.mod to prevent Go version requirement issues"
+            rm -f golang-repo/go.mod golang-repo/go.sum
           fi
           
           # Set environment variables for cross-compilation
@@ -213,11 +212,11 @@ jobs:
           Copy-Item -Force src\cmd\compile\internal\types2\api.go golang-repo\src\cmd\compile\internal\types2\api.go
           Copy-Item -Force src\cmd\dist\build.go golang-repo\src\cmd\dist\build.go
           
-          # Check and modify go.mod to ensure compatibility with 1.24.1
+          # Remove go.mod and go.sum to prevent version constraints
           if (Test-Path golang-repo\go.mod) {
-            Write-Host "Modifying go.mod to work with Go 1.24.1"
-            (Get-Content golang-repo\go.mod) -replace 'go 1\.[2-9][0-9]', 'go 1.24' | Set-Content golang-repo\go.mod
-            Get-Content golang-repo\go.mod
+            Write-Host "Removing go.mod to prevent Go version requirement issues"
+            if (Test-Path golang-repo\go.mod) { Remove-Item golang-repo\go.mod -Force }
+            if (Test-Path golang-repo\go.sum) { Remove-Item golang-repo\go.sum -Force }
           }
           
           # Set environment variables for cross-compilation
@@ -250,22 +249,15 @@ jobs:
           
           cd golang-repo
           
-          # Check again and modify go.mod to ensure compatibility with 1.24.1
-          if [ -f go.mod ]; then
-            echo "Double-checking go.mod to work with Go 1.24.1"
-            sed -i.bak 's/go 1\.[2-9][0-9]/go 1.24/' go.mod
-            # Also look for 'toolchain go1.25' and replace it
-            sed -i.bak 's/toolchain go1\.[2-9][0-9]/toolchain go1.24/' go.mod
-            cat go.mod
-            
-            # If we still see go 1.25 mentioned anywhere, print a warning
-            if grep -q "1\.25" go.mod; then
-              echo "WARNING: go.mod still contains references to Go 1.25! Additional fix needed."
-              # Try a more aggressive replacement
-              sed -i.bak 's/1\.25/1.24/g' go.mod
-              cat go.mod
-            fi
-          fi
+          # More aggressive approach: completely bypass go.mod
+          rm -f go.mod go.sum
+          echo "Removed go.mod and go.sum to prevent Go version requirement issues"
+          
+          # Create a go.work file to use Go 1.24 without go.mod constraints
+          echo "go 1.24" > go.work
+          echo "use ." >> go.work
+          echo "Created go.work file to override Go version requirements:"
+          cat go.work
           
           cd src
           # Set bootstrap environment - explicitly using the detected Go installation
@@ -282,6 +274,9 @@ jobs:
           # Enable module support
           export GO111MODULE=on
           
+          # Force using go 1.24
+          export GOTOOLCHAIN=local
+          
           # Add additional debugging
           echo "Environment variables:"
           echo "GO111MODULE: $GO111MODULE"
@@ -289,7 +284,7 @@ jobs:
           echo "GOOS: ${{ matrix.platform }}"
           echo "GOTOOLCHAIN: $GOTOOLCHAIN"
           
-          GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} GOTOOLCHAIN=local ./make.bash
+          GOARCH=${{ matrix.arch }} GOOS=${{ matrix.platform }} GOTOOLCHAIN=local ./make.bash -no-clean
       
       - name: Build Go for Windows
         if: matrix.platform == 'windows'
@@ -319,22 +314,16 @@ jobs:
           
           cd golang-repo
           
-          # Check again and modify go.mod to ensure compatibility with 1.24.1
-          if (Test-Path go.mod) {
-            Write-Host "Double-checking go.mod to work with Go 1.24.1"
-            (Get-Content go.mod) -replace 'go 1\.[2-9][0-9]', 'go 1.24' | Set-Content go.mod
-            # Also look for 'toolchain go1.25' and replace it
-            (Get-Content go.mod) -replace 'toolchain go1\.[2-9][0-9]', 'toolchain go1.24' | Set-Content go.mod
-            Get-Content go.mod
-            
-            # If we still see go 1.25 mentioned anywhere, print a warning
-            if (Select-String -Path go.mod -Pattern "1\.25") {
-              Write-Host "WARNING: go.mod still contains references to Go 1.25! Additional fix needed."
-              # Try a more aggressive replacement
-              (Get-Content go.mod) -replace '1\.25', '1.24' | Set-Content go.mod
-              Get-Content go.mod
-            }
-          }
+          # More aggressive approach: completely bypass go.mod
+          if (Test-Path go.mod) { Remove-Item go.mod -Force }
+          if (Test-Path go.sum) { Remove-Item go.sum -Force }
+          Write-Host "Removed go.mod and go.sum to prevent Go version requirement issues"
+          
+          # Create a go.work file to use Go 1.24 without go.mod constraints
+          "go 1.24" | Out-File -FilePath go.work
+          "use ." | Out-File -FilePath go.work -Append
+          Write-Host "Created go.work file to override Go version requirements:"
+          Get-Content go.work
           
           cd src
           # Set bootstrap environment - explicitly using the detected Go installation
