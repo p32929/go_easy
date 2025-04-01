@@ -51,7 +51,6 @@ jobs:
           if [[ "${{ github.event.inputs.force_update }}" == "true" ]]; then
             echo "Force update requested, proceeding with update"
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "$GO_REPO_COMMIT" > last_processed_commit.txt
             exit 0
           fi
           
@@ -66,12 +65,10 @@ jobs:
             else
               echo "New changes detected in golang/go repository"
               echo "has_changes=true" >> $GITHUB_OUTPUT
-              echo "$GO_REPO_COMMIT" > last_processed_commit.txt
             fi
           else
             echo "First time running workflow or tracking file not found"
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "$GO_REPO_COMMIT" > last_processed_commit.txt
           fi
       
       - name: Extract Go version
@@ -140,7 +137,7 @@ jobs:
           # Push to the update branch
           git push origin ${UPDATE_BRANCH}
       
-      - name: Create PR for the changes
+      - name: Create and merge PR for the changes
         if: steps.check_changes.outputs.has_changes == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -152,5 +149,19 @@ jobs:
           
           gh pr create --title "${PR_TITLE}" --body "${PR_BODY}" --base master --head ${UPDATE_BRANCH}
           
-          # Auto-approve and merge immediately
-          gh pr merge ${UPDATE_BRANCH} --auto --squash 
+          # Wait a moment for PR to be created and any initial checks to start
+          sleep 10
+          
+          # Get PR number
+          PR_NUMBER=$(gh pr list --head ${UPDATE_BRANCH} --json number --jq '.[0].number')
+          echo "Created PR #${PR_NUMBER}"
+          
+          # Check if PR can be merged (has no conflicts)
+          if gh pr view ${PR_NUMBER} --json mergeable | grep -q '"mergeable": true'; then
+            echo "PR is mergeable, attempting to merge"
+            # Auto-approve and merge
+            gh pr merge ${PR_NUMBER} --admin --squash --delete-branch
+          else
+            echo "PR has conflicts and cannot be auto-merged. Manual intervention required."
+            exit 1
+          fi 

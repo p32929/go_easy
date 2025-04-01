@@ -71,15 +71,30 @@ jobs:
           cd golang-repo
           echo "GO_REPO_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
       
+      - name: Check if workflow is triggered by auto-merge
+        id: workflow_trigger
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "This workflow was triggered by the auto-merge workflow."
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+      
       - name: Check if new changes exist in upstream
         id: check_changes
         if: ${{ github.event_name != 'workflow_run' || steps.workflow_check.outputs.workflow_succeeded == 'true' }}
         run: |
+          # If this is triggered by a workflow_run, we already know we have changes
+          if [[ "${{ steps.workflow_trigger.outputs.has_changes }}" == "true" ]]; then
+            echo "Changes detected from auto-merge workflow"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
           # If force_build is set to true, always build
           if [[ "${{ github.event.inputs.force_build }}" == "true" ]]; then
             echo "Force build requested, proceeding with build"
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "$GO_REPO_COMMIT" > last_processed_commit.txt
             exit 0
           fi
           
@@ -94,12 +109,10 @@ jobs:
             else
               echo "New changes detected in golang/go repository"
               echo "has_changes=true" >> $GITHUB_OUTPUT
-              echo "$GO_REPO_COMMIT" > last_processed_commit.txt
             fi
           else
             echo "First time running workflow or tracking file not found"
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "$GO_REPO_COMMIT" > last_processed_commit.txt
           fi
 
       - name: Extract Go version
