@@ -1,9 +1,9 @@
 name: Build and Release Go-Easy for Linux
 
 on:
-  # Run when the auto-merge workflow completes successfully
+  # Run when the fork sync workflow completes successfully
   workflow_run:
-    workflows: ["Auto-Merge Golang Updates"]
+    workflows: ["Sync Fork with Upstream"]
     types:
       - completed
     branches:
@@ -71,11 +71,11 @@ jobs:
           cd golang-repo
           echo "GO_REPO_COMMIT=$(git rev-parse HEAD)" >> $GITHUB_ENV
       
-      - name: Check if workflow is triggered by auto-merge
+      - name: Check if workflow is triggered by sync workflow
         id: workflow_trigger
         run: |
           if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            echo "This workflow was triggered by the auto-merge workflow."
+            echo "This workflow was triggered by the sync fork workflow."
             echo "has_changes=true" >> $GITHUB_OUTPUT
             exit 0
           fi
