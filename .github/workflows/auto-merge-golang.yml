@@ -86,9 +86,10 @@ jobs:
       - name: Create update branch
         if: steps.check_changes.outputs.has_changes == 'true'
         run: |
-          # Create a new branch for the update
+          # Create a new branch with a more unique name (using timestamp)
           GO_VERSION="${{ steps.extract_version.outputs.go_version }}"
-          UPDATE_BRANCH="update-golang-${GO_VERSION}-$(date +%Y%m%d)"
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          UPDATE_BRANCH="update-golang-${GO_VERSION}-${TIMESTAMP}"
           echo "UPDATE_BRANCH=${UPDATE_BRANCH}" >> $GITHUB_ENV
           
           git checkout -b ${UPDATE_BRANCH}
@@ -124,7 +125,7 @@ jobs:
           # Store the Go repo commit hash we just processed
           echo "$GO_REPO_COMMIT" > last_processed_commit.txt
       
-      - name: Commit and push changes
+      - name: Commit changes
         if: steps.check_changes.outputs.has_changes == 'true'
         run: |
           # Add all changes to git
@@ -133,11 +134,21 @@ jobs:
           # Commit the changes
           GO_VERSION="${{ steps.extract_version.outputs.go_version }}"
           git commit -m "Update to Go ${GO_VERSION}" -m "Automatically merged with golang/go at commit ${GO_REPO_COMMIT}"
-          
-          # Push to the update branch
-          git push origin ${UPDATE_BRANCH}
       
-      - name: Create and merge PR for the changes
+      - name: Try pushing changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+        id: push_changes
+        continue-on-error: true
+        run: |
+          # Try to push the branch (might fail if conflicts exist)
+          if git push origin ${UPDATE_BRANCH}; then
+            echo "push_succeeded=true" >> $GITHUB_OUTPUT
+          else
+            echo "push_succeeded=false" >> $GITHUB_OUTPUT
+            echo "Push failed, but continuing to create PR"
+          fi
+      
+      - name: Create PR for the changes
         if: steps.check_changes.outputs.has_changes == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -145,23 +156,18 @@ jobs:
           # Create PR using the GitHub CLI
           GO_VERSION="${{ steps.extract_version.outputs.go_version }}"
           PR_TITLE="Update to Go ${GO_VERSION}"
-          PR_BODY="This PR updates Go-Easy with the latest changes from golang/go repository at commit ${GO_REPO_COMMIT}. This update was performed automatically by GitHub Actions."
           
-          gh pr create --title "${PR_TITLE}" --body "${PR_BODY}" --base master --head ${UPDATE_BRANCH}
-          
-          # Wait a moment for PR to be created and any initial checks to start
-          sleep 10
-          
-          # Get PR number
-          PR_NUMBER=$(gh pr list --head ${UPDATE_BRANCH} --json number --jq '.[0].number')
-          echo "Created PR #${PR_NUMBER}"
-          
-          # Check if PR can be merged (has no conflicts)
-          if gh pr view ${PR_NUMBER} --json mergeable | grep -q '"mergeable": true'; then
-            echo "PR is mergeable, attempting to merge"
-            # Auto-approve and merge
-            gh pr merge ${PR_NUMBER} --admin --squash --delete-branch
+          # Customize PR body based on whether push succeeded
+          if [[ "${{ steps.push_changes.outputs.push_succeeded }}" == "true" ]]; then
+            PR_BODY="This PR updates Go-Easy with the latest changes from golang/go repository at commit ${GO_REPO_COMMIT}. This update was performed automatically by GitHub Actions."
           else
-            echo "PR has conflicts and cannot be auto-merged. Manual intervention required."
+            PR_BODY="This PR updates Go-Easy with the latest changes from golang/go repository at commit ${GO_REPO_COMMIT}. This update was performed automatically by GitHub Actions.\n\n**NOTE:** There might be conflicts that need manual resolution."
+          fi
+          
+          # Try to create the PR
+          if gh pr create --title "${PR_TITLE}" --body "${PR_BODY}" --base master --head ${UPDATE_BRANCH}; then
+            echo "PR created successfully. Please review and merge manually."
+          else
+            echo "Failed to create PR. You may need to create it manually."
             exit 1
           fi 
