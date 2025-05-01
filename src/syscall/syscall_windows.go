@@ -138,12 +138,32 @@ func FormatMessage(flags uint32, msgsrc uint32, msgid uint32, langid uint32, buf
 	return formatMessage(flags, uintptr(msgsrc), msgid, langid, buf, args)
 }
 
+var errnoErrorCache sync.Map
+
 func (e Errno) Error() string {
 	// deal with special go errors
 	idx := int(e - APPLICATION_ERROR)
 	if 0 <= idx && idx < len(errors) {
 		return errors[idx]
 	}
+
+	cache := false
+	switch e {
+	case ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND:
+		if cached, ok := errnoErrorCache.Load(e); ok {
+			return cached.(string)
+		}
+		cache = true
+	}
+
+	result := e.error()
+	if cache {
+		errnoErrorCache.Store(e, result)
+	}
+	return result
+}
+
+func (e Errno) error() string {
 	// ask windows for the remaining errors
 	var flags uint32 = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_ARGUMENT_ARRAY | FORMAT_MESSAGE_IGNORE_INSERTS
 	b := make([]uint16, 300)
@@ -1192,7 +1212,9 @@ func SetsockoptInet4Addr(fd Handle, level, opt int, value [4]byte) (err error) {
 func SetsockoptIPMreq(fd Handle, level, opt int, mreq *IPMreq) (err error) {
 	return Setsockopt(fd, int32(level), int32(opt), (*byte)(unsafe.Pointer(mreq)), int32(unsafe.Sizeof(*mreq)))
 }
-func SetsockoptIPv6Mreq(fd Handle, level, opt int, mreq *IPv6Mreq) (err error) { return EWINDOWS }
+func SetsockoptIPv6Mreq(fd Handle, level, opt int, mreq *IPv6Mreq) (err error) {
+	return Setsockopt(fd, int32(level), int32(opt), (*byte)(unsafe.Pointer(mreq)), int32(unsafe.Sizeof(*mreq)))
+}
 
 func Getpid() (pid int) { return int(getCurrentProcessId()) }
 

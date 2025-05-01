@@ -429,6 +429,10 @@ func findgoversion() string {
 	// Otherwise, use Git.
 	//
 	// Include 1.x base version, hash, and date in the version.
+	// Make sure it includes the substring "devel", but otherwise
+	// use a format compatible with https://go.dev/doc/toolchain#name
+	// so that it's possible to use go/version.Lang, Compare and so on.
+	// See go.dev/issue/73372.
 	//
 	// Note that we lightly parse internal/goversion/goversion.go to
 	// obtain the base version. We can't just import the package,
@@ -440,7 +444,7 @@ func findgoversion() string {
 	if m == nil {
 		fatalf("internal/goversion/goversion.go does not contain 'const Version = ...'")
 	}
-	version := fmt.Sprintf("devel go1.%s-", m[1])
+	version := fmt.Sprintf("go1.%s-devel_", m[1])
 	version += chomp(run(goroot, CheckExit, "git", "log", "-n", "1", "--format=format:%h %cd", "HEAD"))
 
 	// Append "-easy" to the version string
