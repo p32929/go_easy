@@ -1307,6 +1307,13 @@ func validateRFI(ctxt *obj.Link, ins *instruction) {
 	wantNoneReg(ctxt, ins, "rs3", ins.rs3)
 }
 
+func validateRFV(ctxt *obj.Link, ins *instruction) {
+	wantVectorReg(ctxt, ins, "vd", ins.rd)
+	wantNoneReg(ctxt, ins, "rs1", ins.rs1)
+	wantFloatReg(ctxt, ins, "rs2", ins.rs2)
+	wantNoneReg(ctxt, ins, "rs3", ins.rs3)
+}
+
 func validateRFF(ctxt *obj.Link, ins *instruction) {
 	wantFloatReg(ctxt, ins, "rd", ins.rd)
 	wantNoneReg(ctxt, ins, "rs1", ins.rs1)
@@ -1321,9 +1328,30 @@ func validateRIF(ctxt *obj.Link, ins *instruction) {
 	wantNoneReg(ctxt, ins, "rs3", ins.rs3)
 }
 
+func validateRIV(ctxt *obj.Link, ins *instruction) {
+	wantVectorReg(ctxt, ins, "vd", ins.rd)
+	wantNoneReg(ctxt, ins, "rs1", ins.rs1)
+	wantIntReg(ctxt, ins, "rs2", ins.rs2)
+	wantNoneReg(ctxt, ins, "rs3", ins.rs3)
+}
+
+func validateRVF(ctxt *obj.Link, ins *instruction) {
+	wantFloatReg(ctxt, ins, "rd", ins.rd)
+	wantNoneReg(ctxt, ins, "rs1", ins.rs1)
+	wantVectorReg(ctxt, ins, "vs2", ins.rs2)
+	wantNoneReg(ctxt, ins, "rs3", ins.rs3)
+}
+
 func validateRVFV(ctxt *obj.Link, ins *instruction) {
 	wantVectorReg(ctxt, ins, "vd", ins.rd)
 	wantFloatReg(ctxt, ins, "rs1", ins.rs1)
+	wantVectorReg(ctxt, ins, "vs2", ins.rs2)
+	wantNoneReg(ctxt, ins, "rs3", ins.rs3)
+}
+
+func validateRVI(ctxt *obj.Link, ins *instruction) {
+	wantIntReg(ctxt, ins, "rd", ins.rd)
+	wantNoneReg(ctxt, ins, "rs1", ins.rs1)
 	wantVectorReg(ctxt, ins, "vs2", ins.rs2)
 	wantNoneReg(ctxt, ins, "rs3", ins.rs3)
 }
@@ -1569,12 +1597,28 @@ func encodeRFF(ins *instruction) uint32 {
 	return encodeR(ins.as, regF(ins.rs2), 0, regF(ins.rd), ins.funct3, ins.funct7)
 }
 
+func encodeRFV(ins *instruction) uint32 {
+	return encodeR(ins.as, regF(ins.rs2), 0, regV(ins.rd), ins.funct3, ins.funct7)
+}
+
 func encodeRIF(ins *instruction) uint32 {
 	return encodeR(ins.as, regI(ins.rs2), 0, regF(ins.rd), ins.funct3, ins.funct7)
 }
 
+func encodeRIV(ins *instruction) uint32 {
+	return encodeR(ins.as, regI(ins.rs2), 0, regV(ins.rd), ins.funct3, ins.funct7)
+}
+
+func encodeRVF(ins *instruction) uint32 {
+	return encodeR(ins.as, 0, regV(ins.rs2), regF(ins.rd), ins.funct3, ins.funct7)
+}
+
 func encodeRVFV(ins *instruction) uint32 {
 	return encodeR(ins.as, regF(ins.rs1), regV(ins.rs2), regV(ins.rd), ins.funct3, ins.funct7)
+}
+
+func encodeRVI(ins *instruction) uint32 {
+	return encodeR(ins.as, 0, regV(ins.rs2), regI(ins.rd), ins.funct3, ins.funct7)
 }
 
 func encodeRVIV(ins *instruction) uint32 {
@@ -1878,9 +1922,13 @@ var (
 	rFFFFEncoding = encoding{encode: encodeRFFFF, validate: validateRFFFF, length: 4}
 	rFFIEncoding  = encoding{encode: encodeRFFI, validate: validateRFFI, length: 4}
 	rFIEncoding   = encoding{encode: encodeRFI, validate: validateRFI, length: 4}
+	rFVEncoding   = encoding{encode: encodeRFV, validate: validateRFV, length: 4}
 	rIFEncoding   = encoding{encode: encodeRIF, validate: validateRIF, length: 4}
+	rIVEncoding   = encoding{encode: encodeRIV, validate: validateRIV, length: 4}
 	rFFEncoding   = encoding{encode: encodeRFF, validate: validateRFF, length: 4}
+	rVFEncoding   = encoding{encode: encodeRVF, validate: validateRVF, length: 4}
 	rVFVEncoding  = encoding{encode: encodeRVFV, validate: validateRVFV, length: 4}
+	rVIEncoding   = encoding{encode: encodeRVI, validate: validateRVI, length: 4}
 	rVIVEncoding  = encoding{encode: encodeRVIV, validate: validateRVIV, length: 4}
 	rVVEncoding   = encoding{encode: encodeRVV, validate: validateRVV, length: 4}
 	rVViEncoding  = encoding{encode: encodeRVVi, validate: validateRVVi, length: 4}
@@ -2584,6 +2632,80 @@ var instructions = [ALAST & obj.AMask]instructionData{
 	AVFNCVTFXW & obj.AMask:     {enc: rVVEncoding},
 	AVFNCVTFFW & obj.AMask:     {enc: rVVEncoding},
 	AVFNCVTRODFFW & obj.AMask:  {enc: rVVEncoding},
+
+	// 31.14.1: Vector Single-Width Integer Reduction Instructions
+	AVREDSUMVS & obj.AMask:  {enc: rVVVEncoding},
+	AVREDMAXUVS & obj.AMask: {enc: rVVVEncoding},
+	AVREDMAXVS & obj.AMask:  {enc: rVVVEncoding},
+	AVREDMINUVS & obj.AMask: {enc: rVVVEncoding},
+	AVREDMINVS & obj.AMask:  {enc: rVVVEncoding},
+	AVREDANDVS & obj.AMask:  {enc: rVVVEncoding},
+	AVREDORVS & obj.AMask:   {enc: rVVVEncoding},
+	AVREDXORVS & obj.AMask:  {enc: rVVVEncoding},
+
+	// 31.14.2: Vector Widening Integer Reduction Instructions
+	AVWREDSUMUVS & obj.AMask: {enc: rVVVEncoding},
+	AVWREDSUMVS & obj.AMask:  {enc: rVVVEncoding},
+
+	// 31.14.3: Vector Single-Width Floating-Point Reduction Instructions
+	AVFREDOSUMVS & obj.AMask: {enc: rVVVEncoding},
+	AVFREDUSUMVS & obj.AMask: {enc: rVVVEncoding},
+	AVFREDMAXVS & obj.AMask:  {enc: rVVVEncoding},
+	AVFREDMINVS & obj.AMask:  {enc: rVVVEncoding},
+
+	// 31.14.4: Vector Widening Floating-Point Reduction Instructions
+	AVFWREDOSUMVS & obj.AMask: {enc: rVVVEncoding},
+	AVFWREDUSUMVS & obj.AMask: {enc: rVVVEncoding},
+
+	// 31.15: Vector Mask Instructions
+	AVMANDMM & obj.AMask:  {enc: rVVVEncoding},
+	AVMNANDMM & obj.AMask: {enc: rVVVEncoding},
+	AVMANDNMM & obj.AMask: {enc: rVVVEncoding},
+	AVMXORMM & obj.AMask:  {enc: rVVVEncoding},
+	AVMORMM & obj.AMask:   {enc: rVVVEncoding},
+	AVMNORMM & obj.AMask:  {enc: rVVVEncoding},
+	AVMORNMM & obj.AMask:  {enc: rVVVEncoding},
+	AVMXNORMM & obj.AMask: {enc: rVVVEncoding},
+	AVCPOPM & obj.AMask:   {enc: rVIEncoding},
+	AVFIRSTM & obj.AMask:  {enc: rVIEncoding},
+	AVMSBFM & obj.AMask:   {enc: rVVEncoding},
+	AVMSIFM & obj.AMask:   {enc: rVVEncoding},
+	AVMSOFM & obj.AMask:   {enc: rVVEncoding},
+	AVIOTAM & obj.AMask:   {enc: rVVEncoding},
+	AVIDV & obj.AMask:     {enc: rVVEncoding},
+
+	// 31.16.1: Integer Scalar Move Instructions
+	AVMVXS & obj.AMask: {enc: rVIEncoding},
+	AVMVSX & obj.AMask: {enc: rIVEncoding},
+
+	// 31.16.2: Floating-Point Scalar Move Instructions
+	AVFMVFS & obj.AMask: {enc: rVFEncoding},
+	AVFMVSF & obj.AMask: {enc: rFVEncoding},
+
+	// 31.16.3: Vector Slide Instructions
+	AVSLIDEUPVX & obj.AMask:     {enc: rVIVEncoding},
+	AVSLIDEUPVI & obj.AMask:     {enc: rVVuEncoding},
+	AVSLIDEDOWNVX & obj.AMask:   {enc: rVIVEncoding},
+	AVSLIDEDOWNVI & obj.AMask:   {enc: rVVuEncoding},
+	AVSLIDE1UPVX & obj.AMask:    {enc: rVIVEncoding},
+	AVFSLIDE1UPVF & obj.AMask:   {enc: rVFVEncoding},
+	AVSLIDE1DOWNVX & obj.AMask:  {enc: rVIVEncoding},
+	AVFSLIDE1DOWNVF & obj.AMask: {enc: rVFVEncoding},
+
+	// 31.16.4: Vector Register Gather Instructions
+	AVRGATHERVV & obj.AMask:     {enc: rVVVEncoding},
+	AVRGATHEREI16VV & obj.AMask: {enc: rVVVEncoding},
+	AVRGATHERVX & obj.AMask:     {enc: rVIVEncoding},
+	AVRGATHERVI & obj.AMask:     {enc: rVVuEncoding},
+
+	// 31.16.5: Vector Compress Instruction
+	AVCOMPRESSVM & obj.AMask: {enc: rVVVEncoding},
+
+	// 31.16.6: Whole Vector Register Move
+	AVMV1RV & obj.AMask: {enc: rVVEncoding},
+	AVMV2RV & obj.AMask: {enc: rVVEncoding},
+	AVMV4RV & obj.AMask: {enc: rVVEncoding},
+	AVMV8RV & obj.AMask: {enc: rVVEncoding},
 
 	//
 	// Privileged ISA
@@ -3578,7 +3700,11 @@ func instructionsForProg(p *obj.Prog) []*instruction {
 		AVFMULVV, AVFMULVF, AVFDIVVV, AVFDIVVF, AVFRDIVVF, AVFWMULVV, AVFWMULVF,
 		AVFMINVV, AVFMINVF, AVFMAXVV, AVFMAXVF,
 		AVFSGNJVV, AVFSGNJVF, AVFSGNJNVV, AVFSGNJNVF, AVFSGNJXVV, AVFSGNJXVF,
-		AVMFEQVV, AVMFEQVF, AVMFNEVV, AVMFNEVF, AVMFLTVV, AVMFLTVF, AVMFLEVV, AVMFLEVF, AVMFGTVF, AVMFGEVF:
+		AVMFEQVV, AVMFEQVF, AVMFNEVV, AVMFNEVF, AVMFLTVV, AVMFLTVF, AVMFLEVV, AVMFLEVF, AVMFGTVF, AVMFGEVF,
+		AVREDSUMVS, AVREDMAXUVS, AVREDMAXVS, AVREDMINUVS, AVREDMINVS, AVREDANDVS, AVREDORVS, AVREDXORVS,
+		AVWREDSUMUVS, AVWREDSUMVS, AVFREDOSUMVS, AVFREDUSUMVS, AVFREDMAXVS, AVFREDMINVS, AVFWREDOSUMVS, AVFWREDUSUMVS,
+		AVSLIDEUPVX, AVSLIDEDOWNVX, AVSLIDE1UPVX, AVFSLIDE1UPVF, AVSLIDE1DOWNVX, AVFSLIDE1DOWNVF,
+		AVRGATHERVV, AVRGATHEREI16VV, AVRGATHERVX:
 		// Set mask bit
 		switch {
 		case ins.rs3 == obj.REG_NONE:
@@ -3600,7 +3726,7 @@ func instructionsForProg(p *obj.Prog) []*instruction {
 		ins.rd, ins.rs1, ins.rs2, ins.rs3 = uint32(p.To.Reg), uint32(p.Reg), uint32(p.From.Reg), obj.REG_NONE
 
 	case AVADDVI, AVRSUBVI, AVANDVI, AVORVI, AVXORVI, AVMSEQVI, AVMSNEVI, AVMSLEUVI, AVMSLEVI, AVMSGTUVI, AVMSGTVI,
-		AVSLLVI, AVSRLVI, AVSRAVI, AVNSRLWI, AVNSRAWI:
+		AVSLLVI, AVSRLVI, AVSRAVI, AVNSRLWI, AVNSRAWI, AVRGATHERVI, AVSLIDEUPVI, AVSLIDEDOWNVI:
 		// Set mask bit
 		switch {
 		case ins.rs3 == obj.REG_NONE:
@@ -3739,6 +3865,47 @@ func instructionsForProg(p *obj.Prog) []*instruction {
 			ins.as = AVFSGNJNVV
 		}
 		ins.rd, ins.rs1, ins.rs2 = uint32(p.To.Reg), uint32(p.From.Reg), uint32(p.From.Reg)
+
+	case AVMANDMM, AVMNANDMM, AVMANDNMM, AVMXORMM, AVMORMM, AVMNORMM, AVMORNMM, AVMXNORMM, AVMMVM, AVMNOTM, AVCOMPRESSVM:
+		ins.rd, ins.rs1, ins.rs2 = uint32(p.To.Reg), uint32(p.From.Reg), uint32(p.Reg)
+		switch ins.as {
+		case AVMMVM:
+			ins.as, ins.rs2 = AVMANDMM, ins.rs1
+		case AVMNOTM:
+			ins.as, ins.rs2 = AVMNANDMM, ins.rs1
+		}
+
+	case AVMCLRM, AVMSETM:
+		ins.rd, ins.rs1, ins.rs2 = uint32(p.From.Reg), uint32(p.From.Reg), uint32(p.From.Reg)
+		switch ins.as {
+		case AVMCLRM:
+			ins.as = AVMXORMM
+		case AVMSETM:
+			ins.as = AVMXNORMM
+		}
+
+	case AVCPOPM, AVFIRSTM, AVMSBFM, AVMSIFM, AVMSOFM, AVIOTAM:
+		// Set mask bit
+		switch {
+		case ins.rs1 == obj.REG_NONE:
+			ins.funct7 |= 1 // unmasked
+		case ins.rs1 != REG_V0:
+			p.Ctxt.Diag("%v: invalid vector mask register", p)
+		}
+		ins.rs1 = obj.REG_NONE
+
+	case AVIDV:
+		// Set mask bit
+		switch {
+		case ins.rd == obj.REG_NONE:
+			ins.funct7 |= 1 // unmasked
+		case ins.rd != obj.REG_NONE && ins.rs2 != REG_V0:
+			p.Ctxt.Diag("%v: invalid vector mask register", p)
+		}
+		if ins.rd == obj.REG_NONE {
+			ins.rd = uint32(p.From.Reg)
+		}
+		ins.rs1, ins.rs2 = obj.REG_NONE, REG_V0
 	}
 
 	for _, ins := range inss {

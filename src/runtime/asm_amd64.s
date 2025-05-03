@@ -452,6 +452,7 @@ goodm:
 	get_tls(CX)		// Set G in TLS
 	MOVQ	R14, g(CX)
 	MOVQ	(g_sched+gobuf_sp)(R14), SP	// sp = g0.sched.sp
+	MOVQ	$0, BP	// clear frame pointer, as caller may execute on another M
 	PUSHQ	AX	// open up space for fn's arg spill slot
 	MOVQ	0(DX), R12
 	CALL	R12		// fn(g)
@@ -615,7 +616,7 @@ TEXT runtime·morestack(SB),NOSPLIT|NOFRAME,$0-0
 	MOVQ	m_g0(BX), BX
 	MOVQ	BX, g(CX)
 	MOVQ	(g_sched+gobuf_sp)(BX), SP
-	MOVQ	(g_sched+gobuf_bp)(BX), BP
+	MOVQ	$0, BP			// clear frame pointer, as caller may execute on another M
 	CALL	runtime·newstack(SB)
 	CALL	runtime·abort(SB)	// crash if newstack returns
 	RET
