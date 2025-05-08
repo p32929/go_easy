@@ -1254,13 +1254,17 @@ func goroutineheader(gp *g) {
 	if gp.lockedm != 0 {
 		print(", locked to thread")
 	}
-	if sg := gp.syncGroup; sg != nil {
-		print(", synctest group ", sg.root.goid)
+	if bubble := gp.bubble; bubble != nil {
+		print(", synctest bubble ", bubble.root.goid)
 	}
 	print("]:\n")
 }
 
 func tracebackothers(me *g) {
+	tracebacksomeothers(me, func(*g) bool { return true })
+}
+
+func tracebacksomeothers(me *g, showf func(*g) bool) {
 	level, _, _ := gotraceback()
 
 	// Show the current goroutine first, if we haven't already.
@@ -1279,7 +1283,7 @@ func tracebackothers(me *g) {
 	// against concurrent creation of new Gs, but even with allglock we may
 	// miss Gs created after this loop.
 	forEachGRace(func(gp *g) {
-		if gp == me || gp == curgp || readgstatus(gp) == _Gdead || isSystemGoroutine(gp, false) && level < 2 {
+		if gp == me || gp == curgp || readgstatus(gp) == _Gdead || !showf(gp) || (isSystemGoroutine(gp, false) && level < 2) {
 			return
 		}
 		print("\n")
