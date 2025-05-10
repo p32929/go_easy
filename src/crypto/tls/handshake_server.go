@@ -169,7 +169,15 @@ func (c *Conn) readClientHello(ctx context.Context) (*clientHelloMsg, *echServer
 	c.ticketKeys = originalConfig.ticketKeys(configForClient)
 
 	clientVersions := clientHello.supportedVersions
-	if len(clientHello.supportedVersions) == 0 {
+	if clientHello.vers >= VersionTLS13 && len(clientVersions) == 0 {
+		// RFC 8446 4.2.1 indicates when the supported_versions extension is not sent,
+		// compatible servers MUST negotiate TLS 1.2 or earlier if supported, even
+		// if the client legacy version is TLS 1.3 or later.
+		//
+		// Since we reject empty extensionSupportedVersions in the client hello unmarshal
+		// finding the supportedVersions empty indicates the extension was not present.
+		clientVersions = supportedVersionsFromMax(VersionTLS12)
+	} else if len(clientVersions) == 0 {
 		clientVersions = supportedVersionsFromMax(clientHello.vers)
 	}
 	c.vers, ok = c.config.mutualVersion(roleServer, clientVersions)
@@ -272,7 +280,11 @@ func (hs *serverHandshakeState) processClientHello() error {
 		hs.hello.scts = hs.cert.SignedCertificateTimestamps
 	}
 
-	hs.ecdheOk = supportsECDHE(c.config, c.vers, hs.clientHello.supportedCurves, hs.clientHello.supportedPoints)
+	hs.ecdheOk, err = supportsECDHE(c.config, c.vers, hs.clientHello.supportedCurves, hs.clientHello.supportedPoints)
+	if err != nil {
+		c.sendAlert(alertMissingExtension)
+		return err
+	}
 
 	if hs.ecdheOk && len(hs.clientHello.supportedPoints) > 0 {
 		// Although omitting the ec_point_formats extension is permitted, some
@@ -343,7 +355,7 @@ func negotiateALPN(serverProtos, clientProtos []string, quic bool) (string, erro
 
 // supportsECDHE returns whether ECDHE key exchanges can be used with this
 // pre-TLS 1.3 client.
-func supportsECDHE(c *Config, version uint16, supportedCurves []CurveID, supportedPoints []uint8) bool {
+func supportsECDHE(c *Config, version uint16, supportedCurves []CurveID, supportedPoints []uint8) (bool, error) {
 	supportsCurve := false
 	for _, curve := range supportedCurves {
 		if c.supportsCurve(version, curve) {
@@ -353,10 +365,12 @@ func supportsECDHE(c *Config, version uint16, supportedCurves []CurveID, support
 	}
 
 	supportsPointFormat := false
+	offeredNonCompressedFormat := false
 	for _, pointFormat := range supportedPoints {
 		if pointFormat == pointFormatUncompressed {
 			supportsPointFormat = true
-			break
+		} else {
+			offeredNonCompressedFormat = true
 		}
 	}
 	// Per RFC 8422, Section 5.1.2, if the Supported Point Formats extension is
@@ -365,9 +379,11 @@ func supportsECDHE(c *Config, version uint16, supportedCurves []CurveID, support
 	// the parser. See https://go.dev/issue/49126.
 	if len(supportedPoints) == 0 {
 		supportsPointFormat = true
+	} else if offeredNonCompressedFormat && !supportsPointFormat {
+		return false, errors.New("tls: client offered only incompatible point formats")
 	}
 
-	return supportsCurve && supportsPointFormat
+	return supportsCurve && supportsPointFormat, nil
 }
 
 func (hs *serverHandshakeState) pickCipherSuite() error {
@@ -890,7 +906,7 @@ func (hs *serverHandshakeState) sendFinished(out []byte) error {
 }
 
 // processCertsFromClient takes a chain of client certificates either from a
-// Certificates message and verifies them.
+// certificateMsg message or a certificateMsgTLS13 message and verifies them.
 func (c *Conn) processCertsFromClient(certificate Certificate) error {
 	certificates := certificate.Certificate
 	certs := make([]*x509.Certificate, len(certificates))
@@ -913,7 +929,7 @@ func (c *Conn) processCertsFromClient(certificate Certificate) error {
 		if c.vers == VersionTLS13 {
 			c.sendAlert(alertCertificateRequired)
 		} else {
-			c.sendAlert(alertBadCertificate)
+			c.sendAlert(alertHandshakeFailure)
 		}
 		return errors.New("tls: client didn't provide a certificate")
 	}
