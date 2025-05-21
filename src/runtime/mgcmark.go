@@ -53,11 +53,11 @@ const (
 	pagesPerSpanRoot = 512
 )
 
-// gcMarkRootPrepare queues root scanning jobs (stacks, globals, and
+// gcPrepareMarkRoots queues root scanning jobs (stacks, globals, and
 // some miscellany) and initializes scanning-related state.
 //
 // The world must be stopped.
-func gcMarkRootPrepare() {
+func gcPrepareMarkRoots() {
 	assertWorldStopped()
 
 	// Compute how many data and BSS root blocks there are.
@@ -128,7 +128,7 @@ func gcMarkRootCheck() {
 	//
 	// We only check the first nStackRoots Gs that we should have scanned.
 	// Since we don't care about newer Gs (see comment in
-	// gcMarkRootPrepare), no locking is required.
+	// gcPrepareMarkRoots), no locking is required.
 	i := 0
 	forEachGRace(func(gp *g) {
 		if i >= work.nStackRoots {
@@ -392,34 +392,42 @@ func markrootSpans(gcw *gcWork, shard int) {
 			for sp := s.specials; sp != nil; sp = sp.next {
 				switch sp.kind {
 				case _KindSpecialFinalizer:
-					// don't mark finalized object, but scan it so we
-					// retain everything it points to.
-					spf := (*specialfinalizer)(unsafe.Pointer(sp))
-					// A finalizer can be set for an inner byte of an object, find object beginning.
-					p := s.base() + uintptr(spf.special.offset)/s.elemsize*s.elemsize
-
-					// Mark everything that can be reached from
-					// the object (but *not* the object itself or
-					// we'll never collect it).
-					if !s.spanclass.noscan() {
-						scanobject(p, gcw)
-					}
-
-					// The special itself is a root.
-					scanblock(uintptr(unsafe.Pointer(&spf.fn)), goarch.PtrSize, &oneptrmask[0], gcw, nil)
+					gcScanFinalizer((*specialfinalizer)(unsafe.Pointer(sp)), s, gcw)
 				case _KindSpecialWeakHandle:
 					// The special itself is a root.
 					spw := (*specialWeakHandle)(unsafe.Pointer(sp))
 					scanblock(uintptr(unsafe.Pointer(&spw.handle)), goarch.PtrSize, &oneptrmask[0], gcw, nil)
 				case _KindSpecialCleanup:
-					spc := (*specialCleanup)(unsafe.Pointer(sp))
-					// The special itself is a root.
-					scanblock(uintptr(unsafe.Pointer(&spc.fn)), goarch.PtrSize, &oneptrmask[0], gcw, nil)
+					gcScanCleanup((*specialCleanup)(unsafe.Pointer(sp)), gcw)
 				}
 			}
 			unlock(&s.speciallock)
 		}
 	}
+}
+
+// gcScanFinalizer scans the relevant parts of a finalizer special as a root.
+func gcScanFinalizer(spf *specialfinalizer, s *mspan, gcw *gcWork) {
+	// Don't mark finalized object, but scan it so we retain everything it points to.
+
+	// A finalizer can be set for an inner byte of an object, find object beginning.
+	p := s.base() + uintptr(spf.special.offset)/s.elemsize*s.elemsize
+
+	// Mark everything that can be reached from
+	// the object (but *not* the object itself or
+	// we'll never collect it).
+	if !s.spanclass.noscan() {
+		scanobject(p, gcw)
+	}
+
+	// The special itself is also a root.
+	scanblock(uintptr(unsafe.Pointer(&spf.fn)), goarch.PtrSize, &oneptrmask[0], gcw, nil)
+}
+
+// gcScanCleanup scans the relevant parts of a cleanup special as a root.
+func gcScanCleanup(spc *specialCleanup, gcw *gcWork) {
+	// The special itself is a root.
+	scanblock(uintptr(unsafe.Pointer(&spc.fn)), goarch.PtrSize, &oneptrmask[0], gcw, nil)
 }
 
 // gcAssistAlloc performs GC work to make gp's assist debt positive.
@@ -1555,7 +1563,7 @@ func scanConservative(b, n uintptr, ptrmask *uint8, gcw *gcWork, state *stackSca
 				return ' '
 			}
 			idx := span.objIndex(val)
-			if span.isFree(idx) {
+			if span.isFreeOrNewlyAllocated(idx) {
 				return ' '
 			}
 			return '*'
@@ -1608,8 +1616,11 @@ func scanConservative(b, n uintptr, ptrmask *uint8, gcw *gcWork, state *stackSca
 		}
 
 		// Check if val points to an allocated object.
+		//
+		// Ignore objects allocated during the mark phase, they've
+		// been allocated black.
 		idx := span.objIndex(val)
-		if span.isFree(idx) {
+		if span.isFreeOrNewlyAllocated(idx) {
 			continue
 		}
 
@@ -1653,6 +1664,9 @@ func greyobject(obj, base, off uintptr, span *mspan, gcw *gcWork, objIndex uintp
 		if setCheckmark(obj, base, off, mbits) {
 			// Already marked.
 			return
+		}
+		if debug.checkfinalizers > 1 {
+			print("  mark ", hex(obj), " found at *(", hex(base), "+", hex(off), ")\n")
 		}
 	} else {
 		if debug.gccheckmark > 0 && span.isFree(objIndex) {

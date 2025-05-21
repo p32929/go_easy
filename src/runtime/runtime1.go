@@ -337,9 +337,10 @@ var debug struct {
 	// debug.malloc is used as a combined debug check
 	// in the malloc function and should be set
 	// if any of the below debug options is != 0.
-	malloc    bool
-	inittrace int32
-	sbrk      int32
+	malloc          bool
+	inittrace       int32
+	sbrk            int32
+	checkfinalizers int32
 	// traceallocfree controls whether execution traces contain
 	// detailed trace data about memory allocation. This value
 	// affects debug.malloc only if it is != 0 and the execution
@@ -373,6 +374,7 @@ var dbgvars = []*dbgVar{
 	{name: "decoratemappings", value: &debug.decoratemappings, def: 1},
 	{name: "disablethp", value: &debug.disablethp},
 	{name: "dontfreezetheworld", value: &debug.dontfreezetheworld},
+	{name: "checkfinalizers", value: &debug.checkfinalizers},
 	{name: "efence", value: &debug.efence},
 	{name: "gccheckmark", value: &debug.gccheckmark},
 	{name: "gcpacertrace", value: &debug.gcpacertrace},
@@ -438,7 +440,7 @@ func parsedebugvars() {
 	// apply environment settings
 	parsegodebug(godebug, nil)
 
-	debug.malloc = (debug.inittrace | debug.sbrk) != 0
+	debug.malloc = (debug.inittrace | debug.sbrk | debug.checkfinalizers) != 0
 	debug.profstackdepth = min(debug.profstackdepth, maxProfStackDepth)
 
 	// Disable async preemption in checkmark mode. The following situation is

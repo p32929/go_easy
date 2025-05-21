@@ -121,6 +121,10 @@ func AddCleanup[T, S any](ptr *T, cleanup func(S), arg S) Cleanup {
 	}
 
 	id := addCleanup(unsafe.Pointer(ptr), fv)
+	if debug.checkfinalizers != 0 {
+		cleanupFn := *(**funcval)(unsafe.Pointer(&cleanup))
+		setCleanupContext(unsafe.Pointer(ptr), abi.TypeFor[T](), sys.GetCallerPC(), cleanupFn.fn, id)
+	}
 	return Cleanup{
 		id:  id,
 		ptr: usptr,
@@ -146,7 +150,7 @@ func (c Cleanup) Stop() {
 	}
 
 	// The following block removes the Special record of type cleanup for the object c.ptr.
-	span := spanOfHeap(uintptr(unsafe.Pointer(c.ptr)))
+	span := spanOfHeap(c.ptr)
 	if span == nil {
 		return
 	}
@@ -156,7 +160,7 @@ func (c Cleanup) Stop() {
 	mp := acquirem()
 	span.ensureSwept()
 
-	offset := uintptr(unsafe.Pointer(c.ptr)) - span.base()
+	offset := c.ptr - span.base()
 
 	var found *special
 	lock(&span.speciallock)
@@ -197,6 +201,10 @@ func (c Cleanup) Stop() {
 	lock(&mheap_.speciallock)
 	mheap_.specialCleanupAlloc.free(unsafe.Pointer(found))
 	unlock(&mheap_.speciallock)
+
+	if debug.checkfinalizers != 0 {
+		clearCleanupContext(c.ptr, c.id)
+	}
 }
 
 const cleanupBlockSize = 512
@@ -328,6 +336,20 @@ type cleanupQueue struct {
 	//
 	// Read without lock, written only with lock held.
 	needg atomic.Uint32
+
+	// Cleanup queue stats.
+
+	// queued represents a monotonic count of queued cleanups. This is sharded across
+	// Ps via the field cleanupsQueued in each p, so reading just this value is insufficient.
+	// In practice, this value only includes the queued count of dead Ps.
+	//
+	// Writes are protected by STW.
+	queued uint64
+
+	// executed is a monotonic count of executed cleanups.
+	//
+	// Read and updated atomically.
+	executed atomic.Uint64
 }
 
 // addWork indicates that n units of parallelizable work have been added to the queue.
@@ -379,6 +401,7 @@ func (q *cleanupQueue) enqueue(fn *funcval) {
 		pp.cleanups = nil
 		q.addWork(1)
 	}
+	pp.cleanupsQueued++
 	releasem(mp)
 }
 
@@ -578,6 +601,19 @@ func (q *cleanupQueue) endRunningCleanups() {
 	releasem(mp)
 }
 
+func (q *cleanupQueue) readQueueStats() (queued, executed uint64) {
+	executed = q.executed.Load()
+	queued = q.queued
+
+	// N.B. This is inconsistent, but that's intentional. It's just an estimate.
+	// Read this _after_ reading executed to decrease the chance that we observe
+	// an inconsistency in the statistics (executed > queued).
+	for _, pp := range allp {
+		queued += pp.cleanupsQueued
+	}
+	return
+}
+
 func maxCleanupGs() uint32 {
 	// N.B. Left as a function to make changing the policy easier.
 	return uint32(max(gomaxprocs/4, 1))
@@ -628,6 +664,7 @@ func runCleanups() {
 			}
 		}
 		gcCleanups.endRunningCleanups()
+		gcCleanups.executed.Add(int64(b.n))
 
 		atomic.Store(&b.n, 0) // Synchronize with markroot. See comment in cleanupBlockHeader.
 		gcCleanups.free.push(&b.lfnode)

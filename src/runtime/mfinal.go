@@ -44,11 +44,13 @@ const (
 )
 
 var (
-	finlock    mutex     // protects the following variables
-	fing       *g        // goroutine that runs finalizers
-	finq       *finBlock // list of finalizers that are to be executed
-	finc       *finBlock // cache of free blocks
-	finptrmask [finBlockSize / goarch.PtrSize / 8]byte
+	finlock     mutex     // protects the following variables
+	fing        *g        // goroutine that runs finalizers
+	finq        *finBlock // list of finalizers that are to be executed
+	finc        *finBlock // cache of free blocks
+	finptrmask  [finBlockSize / goarch.PtrSize / 8]byte
+	finqueued   uint64 // monotonic count of queued finalizers
+	finexecuted uint64 // monotonic count of executed finalizers
 )
 
 var allfin *finBlock // list of all blocks
@@ -108,6 +110,7 @@ func queuefinalizer(p unsafe.Pointer, fn *funcval, nret uintptr, fint *_type, ot
 	}
 
 	lock(&finlock)
+
 	if finq == nil || finq.cnt == uint32(len(finq.fin)) {
 		if finc == nil {
 			finc = (*finBlock)(persistentalloc(finBlockSize, 0, &memstats.gcMiscSys))
@@ -141,6 +144,7 @@ func queuefinalizer(p unsafe.Pointer, fn *funcval, nret uintptr, fint *_type, ot
 	f.fint = fint
 	f.ot = ot
 	f.arg = p
+	finqueued++
 	unlock(&finlock)
 	fingStatus.Or(fingWake)
 }
@@ -177,6 +181,14 @@ func finalizercommit(gp *g, lock unsafe.Pointer) bool {
 	return true
 }
 
+func finReadQueueStats() (queued, executed uint64) {
+	lock(&finlock)
+	queued = finqueued
+	executed = finexecuted
+	unlock(&finlock)
+	return
+}
+
 // This is the goroutine that runs all of the finalizers.
 func runFinalizers() {
 	var (
@@ -204,7 +216,8 @@ func runFinalizers() {
 			racefingo()
 		}
 		for fb != nil {
-			for i := fb.cnt; i > 0; i-- {
+			n := fb.cnt
+			for i := n; i > 0; i-- {
 				f := &fb.fin[i-1]
 
 				var regs abi.RegArgs
@@ -270,6 +283,7 @@ func runFinalizers() {
 			}
 			next := fb.next
 			lock(&finlock)
+			finexecuted += uint64(n)
 			fb.next = finc
 			finc = fb
 			unlock(&finlock)
@@ -472,6 +486,11 @@ func SetFinalizer(obj any, finalizer any) {
 		// switch to system stack and remove finalizer
 		systemstack(func() {
 			removefinalizer(e.data)
+
+			if debug.checkfinalizers != 0 {
+				clearFinalizerContext(uintptr(e.data))
+				KeepAlive(e.data)
+			}
 		})
 		return
 	}
@@ -519,9 +538,13 @@ okarg:
 	// make sure we have a finalizer goroutine
 	createfing()
 
+	callerpc := sys.GetCallerPC()
 	systemstack(func() {
 		if !addfinalizer(e.data, (*funcval)(f.data), nret, fint, ot) {
 			throw("runtime.SetFinalizer: finalizer already set")
+		}
+		if debug.checkfinalizers != 0 {
+			setFinalizerContext(e.data, ot.Elem, callerpc, (*funcval)(f.data).fn)
 		}
 	})
 }

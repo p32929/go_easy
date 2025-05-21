@@ -213,16 +213,18 @@ type mheap struct {
 		pad      [(cpu.CacheLinePadSize - unsafe.Sizeof(mcentral{})%cpu.CacheLinePadSize) % cpu.CacheLinePadSize]byte
 	}
 
-	spanalloc              fixalloc // allocator for span*
-	cachealloc             fixalloc // allocator for mcache*
-	specialfinalizeralloc  fixalloc // allocator for specialfinalizer*
-	specialCleanupAlloc    fixalloc // allocator for specialcleanup*
-	specialprofilealloc    fixalloc // allocator for specialprofile*
-	specialReachableAlloc  fixalloc // allocator for specialReachable
-	specialPinCounterAlloc fixalloc // allocator for specialPinCounter
-	specialWeakHandleAlloc fixalloc // allocator for specialWeakHandle
-	speciallock            mutex    // lock for special record allocators.
-	arenaHintAlloc         fixalloc // allocator for arenaHints
+	spanalloc                  fixalloc // allocator for span*
+	cachealloc                 fixalloc // allocator for mcache*
+	specialfinalizeralloc      fixalloc // allocator for specialfinalizer*
+	specialCleanupAlloc        fixalloc // allocator for specialCleanup*
+	specialCheckFinalizerAlloc fixalloc // allocator for specialCheckFinalizer*
+	specialTinyBlockAlloc      fixalloc // allocator for specialTinyBlock*
+	specialprofilealloc        fixalloc // allocator for specialprofile*
+	specialReachableAlloc      fixalloc // allocator for specialReachable
+	specialPinCounterAlloc     fixalloc // allocator for specialPinCounter
+	specialWeakHandleAlloc     fixalloc // allocator for specialWeakHandle
+	speciallock                mutex    // lock for special record allocators.
+	arenaHintAlloc             fixalloc // allocator for arenaHints
 
 	// User arena state.
 	//
@@ -245,8 +247,8 @@ type mheap struct {
 
 	// cleanupID is a counter which is incremented each time a cleanup special is added
 	// to a span. It's used to create globally unique identifiers for individual cleanup.
-	// cleanupID is protected by mheap_.lock. It should only be incremented while holding
-	// the lock.
+	// cleanupID is protected by mheap_.speciallock. It must only be incremented while holding
+	// the lock. ID 0 is reserved. Users should increment first, then read the value.
 	cleanupID uint64
 
 	_ cpu.CacheLinePad
@@ -314,7 +316,7 @@ type heapArena struct {
 	pageUseSpanInlineMarkBits [pagesPerArena / 8]uint8
 
 	// checkmarks stores the debug.gccheckmark state. It is only
-	// used if debug.gccheckmark > 0.
+	// used if debug.gccheckmark > 0 or debug.checkfinalizers > 0.
 	checkmarks *checkmarksMap
 
 	// zeroedBase marks the first byte of the first page in this
@@ -791,6 +793,8 @@ func (h *mheap) init() {
 	h.cachealloc.init(unsafe.Sizeof(mcache{}), nil, nil, &memstats.mcache_sys)
 	h.specialfinalizeralloc.init(unsafe.Sizeof(specialfinalizer{}), nil, nil, &memstats.other_sys)
 	h.specialCleanupAlloc.init(unsafe.Sizeof(specialCleanup{}), nil, nil, &memstats.other_sys)
+	h.specialCheckFinalizerAlloc.init(unsafe.Sizeof(specialCheckFinalizer{}), nil, nil, &memstats.other_sys)
+	h.specialTinyBlockAlloc.init(unsafe.Sizeof(specialTinyBlock{}), nil, nil, &memstats.other_sys)
 	h.specialprofilealloc.init(unsafe.Sizeof(specialprofile{}), nil, nil, &memstats.other_sys)
 	h.specialReachableAlloc.init(unsafe.Sizeof(specialReachable{}), nil, nil, &memstats.other_sys)
 	h.specialPinCounterAlloc.init(unsafe.Sizeof(specialPinCounter{}), nil, nil, &memstats.other_sys)
@@ -1965,20 +1969,28 @@ func (q *mSpanQueue) popN(n int) mSpanQueue {
 }
 
 const (
+	// _KindSpecialTinyBlock indicates that a given allocation is a tiny block.
+	// Ordered before KindSpecialFinalizer and KindSpecialCleanup so that it
+	// always appears first in the specials list.
+	// Used only if debug.checkfinalizers != 0.
+	_KindSpecialTinyBlock = 1
 	// _KindSpecialFinalizer is for tracking finalizers.
-	_KindSpecialFinalizer = 1
+	_KindSpecialFinalizer = 2
 	// _KindSpecialWeakHandle is used for creating weak pointers.
-	_KindSpecialWeakHandle = 2
+	_KindSpecialWeakHandle = 3
 	// _KindSpecialProfile is for memory profiling.
-	_KindSpecialProfile = 3
+	_KindSpecialProfile = 4
 	// _KindSpecialReachable is a special used for tracking
 	// reachability during testing.
-	_KindSpecialReachable = 4
+	_KindSpecialReachable = 5
 	// _KindSpecialPinCounter is a special used for objects that are pinned
 	// multiple times
-	_KindSpecialPinCounter = 5
+	_KindSpecialPinCounter = 6
 	// _KindSpecialCleanup is for tracking cleanups.
-	_KindSpecialCleanup = 6
+	_KindSpecialCleanup = 7
+	// _KindSpecialCheckFinalizer adds additional context to a finalizer or cleanup.
+	// Used only if debug.checkfinalizers != 0.
+	_KindSpecialCheckFinalizer = 8
 )
 
 type special struct {
@@ -2182,7 +2194,7 @@ type specialCleanup struct {
 func addCleanup(p unsafe.Pointer, f *funcval) uint64 {
 	lock(&mheap_.speciallock)
 	s := (*specialCleanup)(mheap_.specialCleanupAlloc.alloc())
-	mheap_.cleanupID++
+	mheap_.cleanupID++ // Increment first. ID 0 is reserved.
 	id := mheap_.cleanupID
 	unlock(&mheap_.speciallock)
 	s.special.kind = _KindSpecialCleanup
@@ -2208,6 +2220,177 @@ func addCleanup(p unsafe.Pointer, f *funcval) uint64 {
 	// discovered for weak handles, see #70455.
 	KeepAlive(f)
 	return id
+}
+
+// Always paired with a specialCleanup or specialfinalizer, adds context.
+type specialCheckFinalizer struct {
+	_         sys.NotInHeap
+	special   special
+	cleanupID uint64 // Needed to disambiguate cleanups.
+	createPC  uintptr
+	funcPC    uintptr
+	ptrType   *_type
+}
+
+// setFinalizerContext adds a specialCheckFinalizer to ptr. ptr must already have a
+// finalizer special attached.
+func setFinalizerContext(ptr unsafe.Pointer, ptrType *_type, createPC, funcPC uintptr) {
+	setCleanupContext(ptr, ptrType, createPC, funcPC, 0)
+}
+
+// setCleanupContext adds a specialCheckFinalizer to ptr. ptr must already have a
+// finalizer or cleanup special attached. Pass 0 for the cleanupID to indicate
+// a finalizer.
+func setCleanupContext(ptr unsafe.Pointer, ptrType *_type, createPC, funcPC uintptr, cleanupID uint64) {
+	lock(&mheap_.speciallock)
+	s := (*specialCheckFinalizer)(mheap_.specialCheckFinalizerAlloc.alloc())
+	unlock(&mheap_.speciallock)
+	s.special.kind = _KindSpecialCheckFinalizer
+	s.cleanupID = cleanupID
+	s.createPC = createPC
+	s.funcPC = funcPC
+	s.ptrType = ptrType
+
+	mp := acquirem()
+	addspecial(ptr, &s.special, true)
+	releasem(mp)
+	KeepAlive(ptr)
+}
+
+func getCleanupContext(ptr uintptr, cleanupID uint64) *specialCheckFinalizer {
+	assertWorldStopped()
+
+	span := spanOfHeap(ptr)
+	if span == nil {
+		return nil
+	}
+	var found *specialCheckFinalizer
+	offset := ptr - span.base()
+	iter, exists := span.specialFindSplicePoint(offset, _KindSpecialCheckFinalizer)
+	if exists {
+		for {
+			s := *iter
+			if s == nil {
+				// Reached the end of the linked list. Stop searching at this point.
+				break
+			}
+			if offset == uintptr(s.offset) && _KindSpecialCheckFinalizer == s.kind &&
+				(*specialCheckFinalizer)(unsafe.Pointer(s)).cleanupID == cleanupID {
+				// The special is a cleanup and contains a matching cleanup id.
+				*iter = s.next
+				found = (*specialCheckFinalizer)(unsafe.Pointer(s))
+				break
+			}
+			if offset < uintptr(s.offset) || (offset == uintptr(s.offset) && _KindSpecialCheckFinalizer < s.kind) {
+				// The special is outside the region specified for that kind of
+				// special. The specials are sorted by kind.
+				break
+			}
+			// Try the next special.
+			iter = &s.next
+		}
+	}
+	return found
+}
+
+// clearFinalizerContext removes the specialCheckFinalizer for the given pointer, if any.
+func clearFinalizerContext(ptr uintptr) {
+	clearCleanupContext(ptr, 0)
+}
+
+// clearFinalizerContext removes the specialCheckFinalizer for the given pointer and cleanup ID, if any.
+func clearCleanupContext(ptr uintptr, cleanupID uint64) {
+	// The following block removes the Special record of type cleanup for the object c.ptr.
+	span := spanOfHeap(ptr)
+	if span == nil {
+		return
+	}
+	// Ensure that the span is swept.
+	// Sweeping accesses the specials list w/o locks, so we have
+	// to synchronize with it. And it's just much safer.
+	mp := acquirem()
+	span.ensureSwept()
+
+	offset := ptr - span.base()
+
+	var found *special
+	lock(&span.speciallock)
+
+	iter, exists := span.specialFindSplicePoint(offset, _KindSpecialCheckFinalizer)
+	if exists {
+		for {
+			s := *iter
+			if s == nil {
+				// Reached the end of the linked list. Stop searching at this point.
+				break
+			}
+			if offset == uintptr(s.offset) && _KindSpecialCheckFinalizer == s.kind &&
+				(*specialCheckFinalizer)(unsafe.Pointer(s)).cleanupID == cleanupID {
+				// The special is a cleanup and contains a matching cleanup id.
+				*iter = s.next
+				found = s
+				break
+			}
+			if offset < uintptr(s.offset) || (offset == uintptr(s.offset) && _KindSpecialCheckFinalizer < s.kind) {
+				// The special is outside the region specified for that kind of
+				// special. The specials are sorted by kind.
+				break
+			}
+			// Try the next special.
+			iter = &s.next
+		}
+	}
+	if span.specials == nil {
+		spanHasNoSpecials(span)
+	}
+	unlock(&span.speciallock)
+	releasem(mp)
+
+	if found == nil {
+		return
+	}
+	lock(&mheap_.speciallock)
+	mheap_.specialCheckFinalizerAlloc.free(unsafe.Pointer(found))
+	unlock(&mheap_.speciallock)
+}
+
+// Indicates that an allocation is a tiny block.
+// Used only if debug.checkfinalizers != 0.
+type specialTinyBlock struct {
+	_       sys.NotInHeap
+	special special
+}
+
+// setTinyBlockContext marks an allocation as a tiny block to diagnostics like
+// checkfinalizer.
+//
+// A tiny block is only marked if it actually contains more than one distinct
+// value, since we're using this for debugging.
+func setTinyBlockContext(ptr unsafe.Pointer) {
+	lock(&mheap_.speciallock)
+	s := (*specialTinyBlock)(mheap_.specialTinyBlockAlloc.alloc())
+	unlock(&mheap_.speciallock)
+	s.special.kind = _KindSpecialTinyBlock
+
+	mp := acquirem()
+	addspecial(ptr, &s.special, false)
+	releasem(mp)
+	KeepAlive(ptr)
+}
+
+// inTinyBlock returns whether ptr is in a tiny alloc block, at one point grouped
+// with other distinct values.
+func inTinyBlock(ptr uintptr) bool {
+	assertWorldStopped()
+
+	ptr = alignDown(ptr, maxTinySize)
+	span := spanOfHeap(ptr)
+	if span == nil {
+		return false
+	}
+	offset := ptr - span.base()
+	_, exists := span.specialFindSplicePoint(offset, _KindSpecialTinyBlock)
+	return exists
 }
 
 // The described object has a weak pointer.
@@ -2623,6 +2806,16 @@ func freeSpecial(s *special, p unsafe.Pointer, size uintptr) {
 		gcCleanups.enqueue(sc.fn)
 		lock(&mheap_.speciallock)
 		mheap_.specialCleanupAlloc.free(unsafe.Pointer(sc))
+		unlock(&mheap_.speciallock)
+	case _KindSpecialCheckFinalizer:
+		sc := (*specialCheckFinalizer)(unsafe.Pointer(s))
+		lock(&mheap_.speciallock)
+		mheap_.specialCheckFinalizerAlloc.free(unsafe.Pointer(sc))
+		unlock(&mheap_.speciallock)
+	case _KindSpecialTinyBlock:
+		st := (*specialTinyBlock)(unsafe.Pointer(s))
+		lock(&mheap_.speciallock)
+		mheap_.specialTinyBlockAlloc.free(unsafe.Pointer(st))
 		unlock(&mheap_.speciallock)
 	default:
 		throw("bad special kind")
