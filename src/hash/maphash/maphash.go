@@ -13,6 +13,8 @@
 package maphash
 
 import (
+	"hash"
+	"internal/abi"
 	"internal/byteorder"
 	"math"
 )
@@ -80,7 +82,7 @@ func String(seed Seed, s string) uint64 {
 //
 // The zero Hash is a valid Hash ready to use.
 // A zero Hash chooses a random seed for itself during
-// the first call to a Reset, Write, Seed, or Sum64 method.
+// the first call to a Reset, Write, Seed, Clone, or Sum64 method.
 // For control over the seed, use SetSeed.
 //
 // The computed hash values depend only on the initial seed and
@@ -281,30 +283,24 @@ func (h *Hash) Size() int { return 8 }
 // BlockSize returns h's block size.
 func (h *Hash) BlockSize() int { return len(h.buf) }
 
+// Clone implements [hash.Cloner].
+func (h *Hash) Clone() (hash.Cloner, error) {
+	h.initSeed()
+	r := *h
+	return &r, nil
+}
+
 // Comparable returns the hash of comparable value v with the given seed
 // such that Comparable(s, v1) == Comparable(s, v2) if v1 == v2.
 // If v != v, then the resulting hash is randomly distributed.
 func Comparable[T comparable](seed Seed, v T) uint64 {
-	escapeForHash(v)
+	abi.EscapeNonString(v)
 	return comparableHash(v, seed)
 }
 
-// escapeForHash forces v to be on the heap, if v contains a
-// non-string pointer. We cannot hash pointers to local variables,
-// as the address of the local variable might change on stack growth.
-// Strings are okay as the hash depends on only the content, not
-// the pointer.
-//
-// This is essentially
-//
-//	if hasNonStringPointers(T) { abi.Escape(v) }
-//
-// Implemented as a compiler intrinsic.
-func escapeForHash[T comparable](v T) { panic("intrinsic") }
-
 // WriteComparable adds x to the data hashed by h.
 func WriteComparable[T comparable](h *Hash, x T) {
-	escapeForHash(x)
+	abi.EscapeNonString(x)
 	// writeComparable (not in purego mode) directly operates on h.state
 	// without using h.buf. Mix in the buffer length so it won't
 	// commute with a buffered write, which either changes h.n or changes

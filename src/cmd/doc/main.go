@@ -122,8 +122,28 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		}
 	}
 	if serveHTTP {
-		// We want to run the logic below to determine a match for a symbol, method,
-		// or field, but not actually print the documentation to the output.
+		// Special case: if there are no arguments, try to go to an appropriate page
+		// depending on whether we're in a module or workspace. The pkgsite homepage
+		// is often not the most useful page.
+		if len(flagSet.Args()) == 0 {
+			mod, err := runCmd(append(os.Environ(), "GOWORK=off"), "go", "list", "-m")
+			if err == nil && mod != "" && mod != "command-line-arguments" {
+				// If there's a module, go to the module's doc page.
+				return doPkgsite(mod)
+			}
+			gowork, err := runCmd(nil, "go", "env", "GOWORK")
+			if err == nil && gowork != "" {
+				// Outside a module, but in a workspace, go to the home page
+				// with links to each of the modules' pages.
+				return doPkgsite("")
+			}
+			// Outside a module or workspace, go to the documentation for the standard library.
+			return doPkgsite("std")
+		}
+
+		// If args are provided, we need to figure out which page to open on the pkgsite
+		// instance. Run the logic below to determine a match for a symbol, method,
+		// or field, but don't actually print the documentation to the output.
 		writer = io.Discard
 	}
 	var paths []string
@@ -179,44 +199,42 @@ func do(writer io.Writer, flagSet *flag.FlagSet, args []string) (err error) {
 		}
 		if found {
 			if serveHTTP {
-				return doPkgsite(userPath, pkg, symbol, method)
+				path, err := objectPath(userPath, pkg, symbol, method)
+				if err != nil {
+					return err
+				}
+				return doPkgsite(path)
 			}
 			return nil
 		}
 	}
 }
 
-func listUserPath(userPath string) (string, error) {
+func runCmd(env []string, cmdline ...string) (string, error) {
 	var stdout, stderr strings.Builder
-	cmd := exec.Command("go", "list", userPath)
+	cmd := exec.Command(cmdline[0], cmdline[1:]...)
+	cmd.Env = env
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("go doc: go list %s: %v\n%s\n", userPath, err, stderr.String())
+		return "", fmt.Errorf("go doc: %s: %v\n%s\n", strings.Join(cmdline, " "), err, stderr.String())
 	}
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-func doPkgsite(userPath string, pkg *Package, symbol, method string) error {
-	port, err := pickUnusedPort()
-	if err != nil {
-		return fmt.Errorf("failed to find port for documentation server: %v", err)
-	}
-	addr := fmt.Sprintf("localhost:%d", port)
-
-	// Assemble url to open on the browser, to point to documentation of
-	// the requested object.
-	importPath := pkg.build.ImportPath
-	if importPath == "." {
+func objectPath(userPath string, pkg *Package, symbol, method string) (string, error) {
+	var err error
+	path := pkg.build.ImportPath
+	if path == "." {
 		// go/build couldn't determine the import path, probably
 		// because this was a relative path into a module. Use
 		// go list to get the import path.
-		importPath, err = listUserPath(userPath)
+		path, err = runCmd(nil, "go", "list", userPath)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
-	path := path.Join("http://"+addr, importPath)
+
 	object := symbol
 	if symbol != "" && method != "" {
 		object = symbol + "." + method
@@ -224,6 +242,16 @@ func doPkgsite(userPath string, pkg *Package, symbol, method string) error {
 	if object != "" {
 		path = path + "#" + object
 	}
+	return path, nil
+}
+
+func doPkgsite(urlPath string) error {
+	port, err := pickUnusedPort()
+	if err != nil {
+		return fmt.Errorf("failed to find port for documentation server: %v", err)
+	}
+	addr := fmt.Sprintf("localhost:%d", port)
+	path := path.Join("http://"+addr, urlPath)
 
 	// Turn off the default signal handler for SIGINT (and SIGQUIT on Unix)
 	// and instead wait for the child process to handle the signal and
@@ -231,10 +259,18 @@ func doPkgsite(userPath string, pkg *Package, symbol, method string) error {
 	signal.Ignore(signalsToIgnore...)
 
 	const version = "v0.0.0-20250520201116-40659211760d"
-	cmd := exec.Command("go", "run", "golang.org/x/pkgsite/cmd/internal/doc@"+version,
+	docatversion := "golang.org/x/pkgsite/cmd/internal/doc@" + version
+	// First download the module and then try to run with GOPROXY=off to circumvent
+	// the deprecation check. This will allow the pkgsite command to run if it's
+	// in the module cache but there's no network.
+	if _, err := runCmd(nil, "go", "mod", "download", docatversion); err != nil {
+		return err
+	}
+	cmd := exec.Command("go", "run", docatversion,
 		"-gorepo", buildCtx.GOROOT,
 		"-http", addr,
 		"-open", path)
+	cmd.Env = append(os.Environ(), "GOPROXY=off")
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 

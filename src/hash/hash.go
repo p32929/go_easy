@@ -56,3 +56,35 @@ type Hash64 interface {
 	Hash
 	Sum64() uint64
 }
+
+// A Cloner is a hash function whose state can be cloned.
+//
+// All [Hash] implementations in the standard library implement this interface,
+// unless GOFIPS140=v1.0.0 is set.
+//
+// If a hash can only determine at runtime if it can be cloned,
+// (e.g., if it wraps another hash), it may return [errors.ErrUnsupported].
+type Cloner interface {
+	Hash
+	Clone() (Cloner, error)
+}
+
+// XOF (extendable output function) is a hash function with arbitrary or unlimited output length.
+type XOF interface {
+	// Write absorbs more data into the XOF's state. It panics if called
+	// after Read.
+	io.Writer
+
+	// Read reads more output from the XOF. It may return io.EOF if there
+	// is a limit to the XOF output length.
+	io.Reader
+
+	// Reset resets the XOF to its initial state.
+	Reset()
+
+	// BlockSize returns the XOF's underlying block size.
+	// The Write method must be able to accept any amount
+	// of data, but it may operate more efficiently if all writes
+	// are a multiple of the block size.
+	BlockSize() int
+}

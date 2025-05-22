@@ -165,6 +165,8 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 		ssa.OpLOONG64OR,
 		ssa.OpLOONG64XOR,
 		ssa.OpLOONG64NOR,
+		ssa.OpLOONG64ANDN,
+		ssa.OpLOONG64ORN,
 		ssa.OpLOONG64SLL,
 		ssa.OpLOONG64SLLV,
 		ssa.OpLOONG64SRL,
@@ -276,7 +278,6 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 		ssa.OpLOONG64ANDconst,
 		ssa.OpLOONG64ORconst,
 		ssa.OpLOONG64XORconst,
-		ssa.OpLOONG64NORconst,
 		ssa.OpLOONG64SLLconst,
 		ssa.OpLOONG64SLLVconst,
 		ssa.OpLOONG64SRLconst,
@@ -293,6 +294,23 @@ func ssaGenValue(s *ssagen.State, v *ssa.Value) {
 		p.Reg = v.Args[0].Reg()
 		p.To.Type = obj.TYPE_REG
 		p.To.Reg = v.Reg()
+
+	case ssa.OpLOONG64NORconst:
+		// MOVV $const, Rtmp
+		// NOR  Rtmp, Rarg0, Rout
+		p := s.Prog(loong64.AMOVV)
+		p.From.Type = obj.TYPE_CONST
+		p.From.Offset = v.AuxInt
+		p.To.Type = obj.TYPE_REG
+		p.To.Reg = loong64.REGTMP
+
+		p2 := s.Prog(v.Op.Asm())
+		p2.From.Type = obj.TYPE_REG
+		p2.From.Reg = loong64.REGTMP
+		p2.Reg = v.Args[0].Reg()
+		p2.To.Type = obj.TYPE_REG
+		p2.To.Reg = v.Reg()
+
 	case ssa.OpLOONG64MOVVconst:
 		r := v.Reg()
 		p := s.Prog(v.Op.Asm())
