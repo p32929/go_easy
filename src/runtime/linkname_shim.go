@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build goexperiment.swissmap
-
 package runtime
 
 import (
@@ -16,8 +14,7 @@ import (
 // Legacy //go:linkname compatibility shims
 //
 // The functions below are unused by the toolchain, and exist only for
-// compatibility with existing //go:linkname use in the ecosystem (and in
-// map_noswiss.go for normal use via GOEXPERIMENT=noswissmap).
+// compatibility with existing //go:linkname use in the ecosystem.
 
 // linknameIter is the it argument to mapiterinit and mapiternext.
 //
@@ -27,7 +24,7 @@ import (
 //	type hiter struct {
 //		key         unsafe.Pointer
 //		elem        unsafe.Pointer
-//		t           *maptype
+//		t           *maptype // old map abi.Type
 //		h           *hmap
 //		buckets     unsafe.Pointer
 //		bptr        *bmap
@@ -64,7 +61,7 @@ type linknameIter struct {
 	// Fields from hiter.
 	key  unsafe.Pointer
 	elem unsafe.Pointer
-	typ  *abi.SwissMapType
+	typ  *abi.MapType
 
 	// The real iterator.
 	it *maps.Iter
@@ -88,7 +85,7 @@ type linknameIter struct {
 // See go.dev/issue/67401.
 //
 //go:linkname mapiterinit
-func mapiterinit(t *abi.SwissMapType, m *maps.Map, it *linknameIter) {
+func mapiterinit(t *abi.MapType, m *maps.Map, it *linknameIter) {
 	if raceenabled && m != nil {
 		callerpc := sys.GetCallerPC()
 		racereadpc(unsafe.Pointer(m), callerpc, abi.FuncPCABIInternal(mapiterinit))
@@ -120,7 +117,7 @@ func mapiterinit(t *abi.SwissMapType, m *maps.Map, it *linknameIter) {
 // See go.dev/issue/67401.
 //
 //go:linkname reflect_mapiterinit reflect.mapiterinit
-func reflect_mapiterinit(t *abi.SwissMapType, m *maps.Map, it *linknameIter) {
+func reflect_mapiterinit(t *abi.MapType, m *maps.Map, it *linknameIter) {
 	mapiterinit(t, m, it)
 }
 

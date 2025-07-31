@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-//go:build goexperiment.swissmap
-
 package runtime
 
 import (
@@ -15,7 +13,7 @@ import (
 // Functions below pushed from internal/runtime/maps.
 
 //go:linkname mapaccess1_fast64
-func mapaccess1_fast64(t *abi.SwissMapType, m *maps.Map, key uint64) unsafe.Pointer
+func mapaccess1_fast64(t *abi.MapType, m *maps.Map, key uint64) unsafe.Pointer
 
 // mapaccess2_fast64 should be an internal detail,
 // but widely used packages access it using linkname.
@@ -26,7 +24,7 @@ func mapaccess1_fast64(t *abi.SwissMapType, m *maps.Map, key uint64) unsafe.Poin
 // See go.dev/issue/67401.
 //
 //go:linkname mapaccess2_fast64
-func mapaccess2_fast64(t *abi.SwissMapType, m *maps.Map, key uint64) (unsafe.Pointer, bool)
+func mapaccess2_fast64(t *abi.MapType, m *maps.Map, key uint64) (unsafe.Pointer, bool)
 
 // mapassign_fast64 should be an internal detail,
 // but widely used packages access it using linkname.
@@ -38,7 +36,7 @@ func mapaccess2_fast64(t *abi.SwissMapType, m *maps.Map, key uint64) (unsafe.Poi
 // See go.dev/issue/67401.
 //
 //go:linkname mapassign_fast64
-func mapassign_fast64(t *abi.SwissMapType, m *maps.Map, key uint64) unsafe.Pointer
+func mapassign_fast64(t *abi.MapType, m *maps.Map, key uint64) unsafe.Pointer
 
 // mapassign_fast64ptr should be an internal detail,
 // but widely used packages access it using linkname.
@@ -50,7 +48,7 @@ func mapassign_fast64(t *abi.SwissMapType, m *maps.Map, key uint64) unsafe.Point
 // See go.dev/issue/67401.
 //
 //go:linkname mapassign_fast64ptr
-func mapassign_fast64ptr(t *abi.SwissMapType, m *maps.Map, key unsafe.Pointer) unsafe.Pointer
+func mapassign_fast64ptr(t *abi.MapType, m *maps.Map, key unsafe.Pointer) unsafe.Pointer
 
 //go:linkname mapdelete_fast64
-func mapdelete_fast64(t *abi.SwissMapType, m *maps.Map, key uint64)
+func mapdelete_fast64(t *abi.MapType, m *maps.Map, key uint64)

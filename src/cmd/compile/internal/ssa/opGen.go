@@ -1963,9 +1963,10 @@ const (
 	OpLOONG64LoweredGetCallerPC
 	OpLOONG64LoweredWB
 	OpLOONG64LoweredPubBarrier
-	OpLOONG64LoweredPanicBoundsA
-	OpLOONG64LoweredPanicBoundsB
-	OpLOONG64LoweredPanicBoundsC
+	OpLOONG64LoweredPanicBoundsRR
+	OpLOONG64LoweredPanicBoundsRC
+	OpLOONG64LoweredPanicBoundsCR
+	OpLOONG64LoweredPanicBoundsCC
 	OpLOONG64PRELD
 	OpLOONG64PRELDX
 
@@ -2079,12 +2080,12 @@ const (
 	OpMIPSLoweredGetCallerPC
 	OpMIPSLoweredWB
 	OpMIPSLoweredPubBarrier
-	OpMIPSLoweredPanicBoundsA
-	OpMIPSLoweredPanicBoundsB
-	OpMIPSLoweredPanicBoundsC
-	OpMIPSLoweredPanicExtendA
-	OpMIPSLoweredPanicExtendB
-	OpMIPSLoweredPanicExtendC
+	OpMIPSLoweredPanicBoundsRR
+	OpMIPSLoweredPanicBoundsRC
+	OpMIPSLoweredPanicBoundsCR
+	OpMIPSLoweredPanicBoundsCC
+	OpMIPSLoweredPanicExtendRR
+	OpMIPSLoweredPanicExtendRC
 
 	OpMIPS64ADDV
 	OpMIPS64ADDVconst
@@ -2211,9 +2212,10 @@ const (
 	OpMIPS64LoweredGetCallerPC
 	OpMIPS64LoweredWB
 	OpMIPS64LoweredPubBarrier
-	OpMIPS64LoweredPanicBoundsA
-	OpMIPS64LoweredPanicBoundsB
-	OpMIPS64LoweredPanicBoundsC
+	OpMIPS64LoweredPanicBoundsRR
+	OpMIPS64LoweredPanicBoundsRC
+	OpMIPS64LoweredPanicBoundsCR
+	OpMIPS64LoweredPanicBoundsCC
 
 	OpPPC64ADD
 	OpPPC64ADDCC
@@ -2653,6 +2655,10 @@ const (
 	OpS390XLPDFR
 	OpS390XLNDFR
 	OpS390XCPSDR
+	OpS390XWFMAXDB
+	OpS390XWFMAXSB
+	OpS390XWFMINDB
+	OpS390XWFMINSB
 	OpS390XFIDBR
 	OpS390XFMOVSload
 	OpS390XFMOVDload
@@ -26439,40 +26445,45 @@ var opcodeTable = [...]opInfo{
 		reg:            regInfo{},
 	},
 	{
-		name:    "LoweredPanicBoundsA",
+		name:    "LoweredPanicBoundsRR",
 		auxType: auxInt64,
 		argLen:  3,
 		call:    true,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 4194304}, // R23
-				{1, 8388608}, // R24
+				{0, 524280}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19
+				{1, 524280}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19
 			},
 		},
 	},
 	{
-		name:    "LoweredPanicBoundsB",
-		auxType: auxInt64,
-		argLen:  3,
+		name:    "LoweredPanicBoundsRC",
+		auxType: auxPanicBoundsC,
+		argLen:  2,
 		call:    true,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 1048576}, // R21
-				{1, 4194304}, // R23
+				{0, 524280}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19
 			},
 		},
 	},
 	{
-		name:    "LoweredPanicBoundsC",
-		auxType: auxInt64,
-		argLen:  3,
+		name:    "LoweredPanicBoundsCR",
+		auxType: auxPanicBoundsC,
+		argLen:  2,
 		call:    true,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 524288},  // R20
-				{1, 1048576}, // R21
+				{0, 524280}, // R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16 R17 R18 R19
 			},
 		},
+	},
+	{
+		name:    "LoweredPanicBoundsCC",
+		auxType: auxPanicBoundsCC,
+		argLen:  1,
+		call:    true,
+		reg:     regInfo{},
 	},
 	{
 		name:           "PRELD",
@@ -27987,77 +27998,68 @@ var opcodeTable = [...]opInfo{
 		reg:            regInfo{},
 	},
 	{
-		name:    "LoweredPanicBoundsA",
+		name:    "LoweredPanicBoundsRR",
 		auxType: auxInt64,
 		argLen:  3,
 		call:    true,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 8},  // R3
-				{1, 16}, // R4
+				{0, 131070}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16
+				{1, 131070}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16
 			},
 		},
 	},
 	{
-		name:    "LoweredPanicBoundsB",
+		name:    "LoweredPanicBoundsRC",
+		auxType: auxPanicBoundsC,
+		argLen:  2,
+		call:    true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 131070}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16
+			},
+		},
+	},
+	{
+		name:    "LoweredPanicBoundsCR",
+		auxType: auxPanicBoundsC,
+		argLen:  2,
+		call:    true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 131070}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16
+			},
+		},
+	},
+	{
+		name:    "LoweredPanicBoundsCC",
+		auxType: auxPanicBoundsCC,
+		argLen:  1,
+		call:    true,
+		reg:     regInfo{},
+	},
+	{
+		name:    "LoweredPanicExtendRR",
 		auxType: auxInt64,
+		argLen:  4,
+		call:    true,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 30},     // R1 R2 R3 R4
+				{1, 30},     // R1 R2 R3 R4
+				{2, 131070}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16
+			},
+		},
+	},
+	{
+		name:    "LoweredPanicExtendRC",
+		auxType: auxPanicBoundsC,
 		argLen:  3,
 		call:    true,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 4}, // R2
-				{1, 8}, // R3
-			},
-		},
-	},
-	{
-		name:    "LoweredPanicBoundsC",
-		auxType: auxInt64,
-		argLen:  3,
-		call:    true,
-		reg: regInfo{
-			inputs: []inputInfo{
-				{0, 2}, // R1
-				{1, 4}, // R2
-			},
-		},
-	},
-	{
-		name:    "LoweredPanicExtendA",
-		auxType: auxInt64,
-		argLen:  4,
-		call:    true,
-		reg: regInfo{
-			inputs: []inputInfo{
-				{0, 32}, // R5
-				{1, 8},  // R3
-				{2, 16}, // R4
-			},
-		},
-	},
-	{
-		name:    "LoweredPanicExtendB",
-		auxType: auxInt64,
-		argLen:  4,
-		call:    true,
-		reg: regInfo{
-			inputs: []inputInfo{
-				{0, 32}, // R5
-				{1, 4},  // R2
-				{2, 8},  // R3
-			},
-		},
-	},
-	{
-		name:    "LoweredPanicExtendC",
-		auxType: auxInt64,
-		argLen:  4,
-		call:    true,
-		reg: regInfo{
-			inputs: []inputInfo{
-				{0, 32}, // R5
-				{1, 2},  // R1
-				{2, 4},  // R2
+				{0, 30}, // R1 R2 R3 R4
+				{1, 30}, // R1 R2 R3 R4
 			},
 		},
 	},
@@ -29760,40 +29762,45 @@ var opcodeTable = [...]opInfo{
 		reg:            regInfo{},
 	},
 	{
-		name:    "LoweredPanicBoundsA",
+		name:    "LoweredPanicBoundsRR",
 		auxType: auxInt64,
 		argLen:  3,
 		call:    true,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 8},  // R3
-				{1, 16}, // R4
+				{0, 131070}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16
+				{1, 131070}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16
 			},
 		},
 	},
 	{
-		name:    "LoweredPanicBoundsB",
-		auxType: auxInt64,
-		argLen:  3,
+		name:    "LoweredPanicBoundsRC",
+		auxType: auxPanicBoundsC,
+		argLen:  2,
 		call:    true,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 4}, // R2
-				{1, 8}, // R3
+				{0, 131070}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16
 			},
 		},
 	},
 	{
-		name:    "LoweredPanicBoundsC",
-		auxType: auxInt64,
-		argLen:  3,
+		name:    "LoweredPanicBoundsCR",
+		auxType: auxPanicBoundsC,
+		argLen:  2,
 		call:    true,
 		reg: regInfo{
 			inputs: []inputInfo{
-				{0, 2}, // R1
-				{1, 4}, // R2
+				{0, 131070}, // R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14 R15 R16
 			},
 		},
+	},
+	{
+		name:    "LoweredPanicBoundsCC",
+		auxType: auxPanicBoundsCC,
+		argLen:  1,
+		call:    true,
+		reg:     regInfo{},
 	},
 
 	{
@@ -35762,6 +35769,62 @@ var opcodeTable = [...]opInfo{
 		name:   "CPSDR",
 		argLen: 2,
 		asm:    s390x.ACPSDR,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+				{1, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+			},
+			outputs: []outputInfo{
+				{0, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+			},
+		},
+	},
+	{
+		name:   "WFMAXDB",
+		argLen: 2,
+		asm:    s390x.AWFMAXDB,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+				{1, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+			},
+			outputs: []outputInfo{
+				{0, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+			},
+		},
+	},
+	{
+		name:   "WFMAXSB",
+		argLen: 2,
+		asm:    s390x.AWFMAXSB,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+				{1, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+			},
+			outputs: []outputInfo{
+				{0, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+			},
+		},
+	},
+	{
+		name:   "WFMINDB",
+		argLen: 2,
+		asm:    s390x.AWFMINDB,
+		reg: regInfo{
+			inputs: []inputInfo{
+				{0, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+				{1, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+			},
+			outputs: []outputInfo{
+				{0, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
+			},
+		},
+	},
+	{
+		name:   "WFMINSB",
+		argLen: 2,
+		asm:    s390x.AWFMINSB,
 		reg: regInfo{
 			inputs: []inputInfo{
 				{0, 4294901760}, // F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15
