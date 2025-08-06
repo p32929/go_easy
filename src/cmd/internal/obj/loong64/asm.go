@@ -422,6 +422,8 @@ var optab = []Optab{
 	{APRELD, C_SOREG, C_U5CON, C_NONE, C_NONE, C_NONE, 47, 4, 0, 0},
 	{APRELDX, C_SOREG, C_DCON, C_U5CON, C_NONE, C_NONE, 48, 20, 0, 0},
 
+	{AALSLV, C_U2CON, C_REG, C_REG, C_REG, C_NONE, 64, 4, 0, 0},
+
 	{obj.APCALIGN, C_U12CON, C_NONE, C_NONE, C_NONE, C_NONE, 0, 0, 0, 0},
 	{obj.APCDATA, C_32CON, C_NONE, C_NONE, C_32CON, C_NONE, 0, 0, 0, 0},
 	{obj.APCDATA, C_DCON, C_NONE, C_NONE, C_DCON, C_NONE, 0, 0, 0, 0},
@@ -727,10 +729,6 @@ func (c *ctxt0) isRestartable(p *obj.Prog) bool {
 
 func isint32(v int64) bool {
 	return int64(int32(v)) == v
-}
-
-func isuint32(v uint64) bool {
-	return uint64(uint32(v)) == v
 }
 
 func (c *ctxt0) aclass(a *obj.Addr) int {
@@ -1496,6 +1494,10 @@ func buildop(ctxt *obj.Link) {
 		case ABFPT:
 			opset(ABFPF, r0)
 
+		case AALSLV:
+			opset(AALSLW, r0)
+			opset(AALSLWU, r0)
+
 		case AMOVW,
 			AMOVD,
 			AMOVF,
@@ -1950,6 +1952,10 @@ func OP_RRR(op uint32, r1 uint32, r2 uint32, r3 uint32) uint32 {
 // r3 -> rd
 func OP_RR(op uint32, r2 uint32, r3 uint32) uint32 {
 	return op | (r2&0x1F)<<5 | (r3&0x1F)<<0
+}
+
+func OP_2IRRR(op uint32, i uint32, r2 uint32, r3 uint32, r4 uint32) uint32 {
+	return op | (i&0x3)<<15 | (r2&0x1F)<<10 | (r3&0x1F)<<5 | (r4&0x1F)<<0
 }
 
 func OP_16IR_5I(op uint32, i uint32, r2 uint32) uint32 {
@@ -2720,6 +2726,10 @@ func (c *ctxt0) asmout(p *obj.Prog, o *Optab, out []uint32) {
 
 	case 62: // rdtimex rd, rj
 		o1 = OP_RR(c.oprr(p.As), uint32(p.To.Reg), uint32(p.RegTo2))
+
+	case 64: // alsl rd, rj, rk, sa2
+		r := p.GetFrom3().Reg
+		o1 = OP_2IRRR(c.opirrr(p.As), uint32(p.From.Offset), uint32(r), uint32(p.Reg), uint32(p.To.Reg))
 
 	case 65: // mov sym@GOT, r ==> pcalau12i + ld.d
 		o1 = OP_IR(c.opir(APCALAU12I), uint32(0), uint32(p.To.Reg))
@@ -4245,6 +4255,19 @@ func (c *ctxt0) opirr(a obj.As) uint32 {
 	} else {
 		c.ctxt.Diag("bad irr opcode %v", a)
 	}
+	return 0
+}
+
+func (c *ctxt0) opirrr(a obj.As) uint32 {
+	switch a {
+	case AALSLW:
+		return 0x2 << 17 // alsl.w
+	case AALSLWU:
+		return 0x3 << 17 // alsl.wu
+	case AALSLV:
+		return 0x16 << 17 // alsl.d
+	}
+
 	return 0
 }
 
