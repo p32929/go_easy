@@ -195,13 +195,12 @@ func (p *Package) Translate(f *File) {
 	var conv typeConv
 	conv.Init(p.PtrSize, p.IntSize)
 
-	p.typedefs = map[string]bool{}
-	p.typedefList = nil
+	ft := fileTypedefs{typedefs: make(map[string]bool)}
 	numTypedefs := -1
-	for len(p.typedefs) > numTypedefs {
-		numTypedefs = len(p.typedefs)
+	for len(ft.typedefs) > numTypedefs {
+		numTypedefs = len(ft.typedefs)
 		// Also ask about any typedefs we've seen so far.
-		for _, info := range p.typedefList {
+		for _, info := range ft.typedefList {
 			if f.Name[info.typedef] != nil {
 				continue
 			}
@@ -214,7 +213,8 @@ func (p *Package) Translate(f *File) {
 		}
 		needType := p.guessKinds(f)
 		if len(needType) > 0 {
-			p.loadDWARF(f, &conv, needType)
+			d := p.loadDWARF(f, &ft, needType)
+			p.recordTypes(f, d, &conv)
 		}
 
 		// In godefs mode we're OK with the typedefs, which
@@ -523,7 +523,7 @@ func (p *Package) guessKinds(f *File) []*Name {
 // loadDWARF parses the DWARF debug information generated
 // by gcc to learn the details of the constants, variables, and types
 // being referred to as C.xxx.
-func (p *Package) loadDWARF(f *File, conv *typeConv, names []*Name) {
+func (p *Package) loadDWARF(f *File, ft *fileTypedefs, names []*Name) *debug {
 	// Extract the types from the DWARF section of an object
 	// from a well-formed C program. Gcc only generates DWARF info
 	// for symbols in the object file, so it is not enough to print the
@@ -637,12 +637,27 @@ func (p *Package) loadDWARF(f *File, conv *typeConv, names []*Name) {
 				fatalf("malformed __cgo__ name: %s", name)
 			}
 			types[i] = t.Type
-			p.recordTypedefs(t.Type, f.NamePos[names[i]])
+			ft.recordTypedefs(t.Type, f.NamePos[names[i]])
 		}
 		if e.Tag != dwarf.TagCompileUnit {
 			r.SkipChildren()
 		}
 	}
+
+	return &debug{names, types, ints, floats, strs}
+}
+
+// debug is the data extracted by running an iteration of loadDWARF on a file.
+type debug struct {
+	names  []*Name
+	types  []dwarf.Type
+	ints   []int64
+	floats []float64
+	strs   []string
+}
+
+func (p *Package) recordTypes(f *File, data *debug, conv *typeConv) {
+	names, types, ints, floats, strs := data.names, data.types, data.ints, data.floats, data.strs
 
 	// Record types and typedef information.
 	for i, n := range names {
@@ -702,12 +717,17 @@ func (p *Package) loadDWARF(f *File, conv *typeConv, names []*Name) {
 	}
 }
 
-// recordTypedefs remembers in p.typedefs all the typedefs used in dtypes and its children.
-func (p *Package) recordTypedefs(dtype dwarf.Type, pos token.Pos) {
-	p.recordTypedefs1(dtype, pos, map[dwarf.Type]bool{})
+type fileTypedefs struct {
+	typedefs    map[string]bool // type names that appear in the types of the objects we're interested in
+	typedefList []typedefInfo
 }
 
-func (p *Package) recordTypedefs1(dtype dwarf.Type, pos token.Pos, visited map[dwarf.Type]bool) {
+// recordTypedefs remembers in ft.typedefs all the typedefs used in dtypes and its children.
+func (ft *fileTypedefs) recordTypedefs(dtype dwarf.Type, pos token.Pos) {
+	ft.recordTypedefs1(dtype, pos, map[dwarf.Type]bool{})
+}
+
+func (ft *fileTypedefs) recordTypedefs1(dtype dwarf.Type, pos token.Pos, visited map[dwarf.Type]bool) {
 	if dtype == nil {
 		return
 	}
@@ -721,25 +741,25 @@ func (p *Package) recordTypedefs1(dtype dwarf.Type, pos token.Pos, visited map[d
 			// Don't look inside builtin types. There be dragons.
 			return
 		}
-		if !p.typedefs[dt.Name] {
-			p.typedefs[dt.Name] = true
-			p.typedefList = append(p.typedefList, typedefInfo{dt.Name, pos})
-			p.recordTypedefs1(dt.Type, pos, visited)
+		if !ft.typedefs[dt.Name] {
+			ft.typedefs[dt.Name] = true
+			ft.typedefList = append(ft.typedefList, typedefInfo{dt.Name, pos})
+			ft.recordTypedefs1(dt.Type, pos, visited)
 		}
 	case *dwarf.PtrType:
-		p.recordTypedefs1(dt.Type, pos, visited)
+		ft.recordTypedefs1(dt.Type, pos, visited)
 	case *dwarf.ArrayType:
-		p.recordTypedefs1(dt.Type, pos, visited)
+		ft.recordTypedefs1(dt.Type, pos, visited)
 	case *dwarf.QualType:
-		p.recordTypedefs1(dt.Type, pos, visited)
+		ft.recordTypedefs1(dt.Type, pos, visited)
 	case *dwarf.FuncType:
-		p.recordTypedefs1(dt.ReturnType, pos, visited)
+		ft.recordTypedefs1(dt.ReturnType, pos, visited)
 		for _, a := range dt.ParamType {
-			p.recordTypedefs1(a, pos, visited)
+			ft.recordTypedefs1(a, pos, visited)
 		}
 	case *dwarf.StructType:
-		for _, f := range dt.Field {
-			p.recordTypedefs1(f.Type, pos, visited)
+		for _, l := range dt.Field {
+			ft.recordTypedefs1(l.Type, pos, visited)
 		}
 	}
 }
